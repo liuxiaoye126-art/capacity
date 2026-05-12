@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+
+  --color-primary: #00bcd4;
+  --color-primary-light: #e0f7fa;
+  --color-on-primary: #ffffff;
+
+  --color-surface: #f0f2f5;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f5f5f5;
+  --color-surface-container: #ebebeb;
+  --color-surface-container-high: #e0e0e0;
+  --color-surface-container-highest: #d4d4d4;
+
+  --color-on-surface: #1f2937;
+  --color-on-surface-variant: #6b7280;
+  --color-outline-variant: #e5e7eb;
+
+  --radius-default: 0.375rem;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-sans antialiased;
+    min-height: 100vh;
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  .admin-card {
+    @apply bg-white rounded border border-outline-variant shadow-[0_1px_3px_rgba(0,0,0,0.06)];
+  }
+
+  .admin-input {
+    @apply w-full rounded border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface
+           placeholder:text-on-surface-variant/60
+           focus:border-primary focus:ring-1 focus:ring-primary/20 focus:outline-none transition-colors;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-surface-container-high rounded-full;
+  }
+}
