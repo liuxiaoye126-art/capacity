@@ -1,18 +1,7 @@
-import {
-  AlertTriangle,
-  ArrowLeft,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Download,
-  FileSpreadsheet,
-  RotateCcw,
-  Send,
-  Upload,
-  XCircle,
-} from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, RotateCcw, Save, Send, Upload, XCircle } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
-import { CapacityRecord } from '../types';
+import { MainFooterPortal } from '../components/layout/Shell';
+import { CapacityRecord, LEVEL3_DATA, normalizeApprovalStatus } from '../types';
 
 interface LevelFourDetailPageProps {
   record: CapacityRecord;
@@ -91,24 +80,10 @@ interface InvoiceFormState {
   attachmentName: string;
 }
 
-interface InvoiceRecognitionDraft {
-  status: '识别一致' | '识别异常';
-  confidence: string;
-  summary: string;
-  issue?: string;
-  recognitionAmount: number;
-  recognitionTaxRate: string;
-}
-
 interface UploadedInvoiceItem extends InvoiceFormState {
   id: string;
   uploadedBy: string;
   uploadedAt: string;
-  recognitionFileName: string;
-  recognitionBatchName: string;
-  recognitionAmount: number;
-  recognitionTaxRate: string;
-  recognitionStatus: '识别一致' | '识别异常';
 }
 
 interface ApprovalLogItem {
@@ -120,25 +95,50 @@ interface ApprovalLogItem {
   detail: string;
 }
 
+interface RelatedLevelThreeBatch {
+  id: string;
+  customer: string;
+  contract: string;
+  operationCenter: string;
+  workDays: number;
+  amount: number;
+  handler: string;
+}
+
+const sampleRelatedLevelThreeMap: Record<string, string[]> = {
+  'L4-2026Q1-001': ['L3-2026Q1-001', 'L3-2026Q1-004'],
+  'L4-2026Q1-002': ['L3-2026Q1-002', 'L3-2026Q1-005'],
+  'L4-2026Q1-003': ['L3-2026Q1-003', 'L3-2026Q1-006'],
+  'L4-2026Q1-004': ['L3-2026Q1-001', 'L3-2026Q1-004'],
+  'L4-2026Q1-005': ['L3-2026Q1-002', 'L3-2026Q1-005'],
+  'L4-2026Q1-006': ['L3-2026Q1-003', 'L3-2026Q1-006'],
+};
+
 type QuickFilter = 'all' | 'diff' | 'modified';
 type DailyDetailFilter = 'all' | 'workday' | 'diff' | 'modified';
+type AdjustmentType = 'capacity' | 'amount';
+
+interface AdjustmentRecord {
+  id: string;
+  summaryId: string;
+  type: AdjustmentType;
+  beforeValue: number;
+  afterValue: number;
+  reason: string;
+  operator: string;
+  time: string;
+}
 
 const QUARTER_MONTHS = ['1月', '2月', '3月'];
 
 const statusColorMap: Record<string, string> = {
   '待提交': 'bg-amber-100 text-amber-700',
-  '待分中心审核': 'bg-sky-100 text-sky-700',
-  '待总部审核': 'bg-violet-100 text-violet-700',
+  '待审核': 'bg-sky-100 text-sky-700',
   '待上传发票': 'bg-cyan-100 text-cyan-700',
   '已归档': 'bg-emerald-100 text-emerald-700',
-  '已驳回': 'bg-rose-100 text-rose-700',
-  '已撤回': 'bg-slate-100 text-slate-700',
 };
 
 const roundValue = (value: number) => Number(value.toFixed(2));
-
-const createExpandedMonthState = () =>
-  Object.fromEntries(QUARTER_MONTHS.map((month) => [month, true])) as Record<string, boolean>;
 
 const formatNumber = (value: number) =>
   value.toLocaleString('zh-CN', {
@@ -173,8 +173,37 @@ const getSourceLevelThreeId = (record: CapacityRecord) => {
   return 'L3-2026Q1-003';
 };
 
-const formatBatchName = (workDays: number, amount: number, identifiedAt: string) =>
-  `${formatNumber(workDays)}人天 ${formatCurrency(amount)} ${identifiedAt}`;
+const getRelatedLevelThreeBatches = (record: CapacityRecord): RelatedLevelThreeBatch[] => {
+  const sampleIds = sampleRelatedLevelThreeMap[record.id] || [];
+  const relatedIds = record.relatedLevelThreeIds && record.relatedLevelThreeIds.length > 1
+    ? record.relatedLevelThreeIds
+    : sampleIds.length > 1
+      ? sampleIds
+    : LEVEL3_DATA.filter(
+        (item) =>
+          item.status === '已通过'
+          && item.customer === record.customer
+          && item.contract === record.contract
+          && item.operationCenter === record.operationCenter
+          && Math.abs(item.amount - record.amount) < 0.01
+          && Math.abs(item.workDays - record.workDays) < 0.01,
+      ).map((item) => item.id);
+
+  const fallbackIds = relatedIds.length ? relatedIds : [getSourceLevelThreeId(record)];
+
+  return fallbackIds
+    .map((id) => LEVEL3_DATA.find((item) => item.id === id))
+    .filter((item): item is CapacityRecord => Boolean(item))
+    .map((item) => ({
+      id: item.id,
+      customer: item.customer,
+      contract: item.contract,
+      operationCenter: item.operationCenter,
+      workDays: item.workDays,
+      amount: item.amount,
+      handler: item.handler,
+    }));
+};
 
 const createWorkdayDates = (year: number, monthNumber: number) => {
   const dates: string[] = [];
@@ -357,7 +386,7 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
   );
 };
 
-const buildMonthlyRows = (rows: DailyCapacityRow[]): PersonMonthlyRow[] => {
+const buildMonthlyRows = (rows: DailyCapacityRow[], amountOverrides: Record<string, number>): PersonMonthlyRow[] => {
   const grouped = new Map<string, Omit<PersonMonthlyRow, 'hasDiff'>>();
 
   rows.forEach((item) => {
@@ -386,12 +415,19 @@ const buildMonthlyRows = (rows: DailyCapacityRow[]): PersonMonthlyRow[] => {
     });
   });
 
-  return Array.from(grouped.values()).map((item) => ({
-    ...item,
-    hasDiff:
-      Math.abs(item.level3Days - item.level4Days) > 0.01 ||
-      Math.abs(item.level3Amount - item.level4Amount) > 0.01,
-  }));
+  return Array.from(grouped.values()).map((item) => {
+    const level4Amount = roundValue(amountOverrides[item.id] ?? item.level4Amount);
+    const amountModified = Object.prototype.hasOwnProperty.call(amountOverrides, item.id);
+
+    return {
+      ...item,
+      level4Amount,
+      hasDiff:
+        Math.abs(item.level3Days - item.level4Days) > 0.01 ||
+        Math.abs(item.level3Amount - level4Amount) > 0.01,
+      modified: item.modified || amountModified,
+    };
+  });
 };
 
 const createInitialInvoiceForm = (record: CapacityRecord): InvoiceFormState => ({
@@ -403,7 +439,7 @@ const createInitialInvoiceForm = (record: CapacityRecord): InvoiceFormState => (
   attachmentName: '',
 });
 
-const createRecognizedInvoiceForm = (
+const createDraftInvoiceForm = (
   record: CapacityRecord,
   attachmentName: string,
   index: number,
@@ -417,27 +453,27 @@ const createRecognizedInvoiceForm = (
   attachmentName,
 });
 
-const createInvoiceRecognitionDraft = (attachmentName: string, amount: number): InvoiceRecognitionDraft => {
-  const isAbnormal = /异常|error|fail/i.test(attachmentName);
-
-  if (isAbnormal) {
-    return {
-      status: '识别异常',
-      confidence: '82%',
-      summary: '识别到金额与税率存在疑点，待人工复核。',
-      issue: '识别金额与申请金额不一致，且识别税率异常。',
-      recognitionAmount: roundValue(Math.max(0, amount - 1200)),
-      recognitionTaxRate: '13',
-    };
+const createPendingInvoiceForms = (
+  record: CapacityRecord,
+  fileNames: string[],
+  uploadedCount: number,
+  targetAmount: number,
+) => {
+  if (!fileNames.length) {
+    return [];
   }
 
-  return {
-    status: '识别一致',
-    confidence: '98%',
-    summary: '版式完整，票面关键信息识别一致。',
-    recognitionAmount: roundValue(amount),
-    recognitionTaxRate: '6',
-  };
+  const safeTargetAmount = roundValue(Math.max(targetAmount, 0));
+  const baseAmount = fileNames.length ? roundValue(safeTargetAmount / fileNames.length) : 0;
+  let allocatedAmount = 0;
+
+  return fileNames.map((fileName, index) => {
+    const isLast = index === fileNames.length - 1;
+    const nextAmount = isLast ? roundValue(safeTargetAmount - allocatedAmount) : baseAmount;
+    allocatedAmount = roundValue(allocatedAmount + nextAmount);
+
+    return createDraftInvoiceForm(record, fileName, uploadedCount + index + 1, nextAmount);
+  });
 };
 
 const createInitialInvoices = (record: CapacityRecord): UploadedInvoiceItem[] => {
@@ -459,11 +495,6 @@ const createInitialInvoices = (record: CapacityRecord): UploadedInvoiceItem[] =>
       attachmentName: `${record.customer}_${record.period}_发票_01.pdf`,
       uploadedBy: record.handler,
       uploadedAt: '2026-04-12 15:20',
-      recognitionFileName: `${record.customer}_${record.period}_发票识别_01.xlsx`,
-      recognitionBatchName: '识别结果 01 - 2026-04-12',
-      recognitionAmount: firstAmount,
-      recognitionTaxRate: '6',
-      recognitionStatus: '识别一致',
     },
     {
       id: `${record.id}-invoice-2`,
@@ -475,11 +506,6 @@ const createInitialInvoices = (record: CapacityRecord): UploadedInvoiceItem[] =>
       attachmentName: `${record.customer}_${record.period}_发票_02.pdf`,
       uploadedBy: record.handler,
       uploadedAt: '2026-04-12 15:28',
-      recognitionFileName: `${record.customer}_${record.period}_发票识别_02.xlsx`,
-      recognitionBatchName: '识别结果 02 - 2026-04-12',
-      recognitionAmount: secondAmount,
-      recognitionTaxRate: '6',
-      recognitionStatus: '识别一致',
     },
   ];
 };
@@ -549,16 +575,21 @@ const SectionTitle = ({ title, extra }: { title: string; extra?: React.ReactNode
 
 export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: LevelFourDetailPageProps) => {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
-  const [selectedPosition, setSelectedPosition] = useState('');
+  const [memberKeyword, setMemberKeyword] = useState('');
+  const [monthFilter, setMonthFilter] = useState('');
+  const [positionFilter, setPositionFilter] = useState('');
   const [selectedMonthlyDetailId, setSelectedMonthlyDetailId] = useState('');
   const [dailyDetailFilter, setDailyDetailFilter] = useState<DailyDetailFilter>('all');
-  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>(() => createExpandedMonthState());
   const [personRows, setPersonRows] = useState<DailyCapacityRow[]>(() => createDailyRows(record));
+  const [amountOverrides, setAmountOverrides] = useState<Record<string, number>>({});
+  const [adjustmentHistoryMap, setAdjustmentHistoryMap] = useState<Record<string, AdjustmentRecord[]>>({});
+  const [adjustmentModal, setAdjustmentModal] = useState<{ summaryId: string; type: AdjustmentType } | null>(null);
+  const [draftAdjustmentValue, setDraftAdjustmentValue] = useState('');
+  const [draftAdjustmentReason, setDraftAdjustmentReason] = useState('');
   const [currentStatus, setCurrentStatus] = useState(record.status);
   const [currentInvoiceStatus, setCurrentInvoiceStatus] = useState(record.invoiceStatus || '--');
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
-  const [invoiceForm, setInvoiceForm] = useState<InvoiceFormState>(() => createInitialInvoiceForm(record));
-  const [invoiceRecognitionDraft, setInvoiceRecognitionDraft] = useState<InvoiceRecognitionDraft | null>(null);
+  const [pendingInvoiceForms, setPendingInvoiceForms] = useState<InvoiceFormState[]>([]);
   const [uploadedInvoices, setUploadedInvoices] = useState<UploadedInvoiceItem[]>(() => createInitialInvoices(record));
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [totalAdjustmentModalOpen, setTotalAdjustmentModalOpen] = useState(false);
@@ -567,6 +598,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   const [totalAdjustmentAmount, setTotalAdjustmentAmount] = useState('');
   const [totalAdjustmentReason, setTotalAdjustmentReason] = useState('');
   const [totalAdjustmentTouched, setTotalAdjustmentTouched] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState('');
 
   const initialPersonRows = useMemo(() => createDailyRows(record), [record]);
   const initialPersonRowMap = useMemo(
@@ -576,14 +608,20 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
 
   useEffect(() => {
     setQuickFilter('all');
+    setMemberKeyword('');
+    setMonthFilter('');
+    setPositionFilter('');
     setSelectedMonthlyDetailId('');
     setDailyDetailFilter('all');
-    setExpandedMonths(createExpandedMonthState());
     setPersonRows(initialPersonRows);
-    setCurrentStatus(record.status);
+    setAmountOverrides({});
+    setAdjustmentHistoryMap({});
+    setAdjustmentModal(null);
+    setDraftAdjustmentValue('');
+    setDraftAdjustmentReason('');
+    setCurrentStatus(normalizeApprovalStatus(record.status));
     setCurrentInvoiceStatus(record.invoiceStatus || '--');
-    setInvoiceForm(createInitialInvoiceForm(record));
-    setInvoiceRecognitionDraft(null);
+    setPendingInvoiceForms([]);
     setUploadedInvoices(createInitialInvoices(record));
     setLogsExpanded(false);
     setTotalAdjustmentModalOpen(false);
@@ -592,73 +630,34 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     setTotalAdjustmentAmount('');
     setTotalAdjustmentReason('');
     setTotalAdjustmentTouched(false);
+    setLastSavedAt('');
   }, [initialPersonRows, record]);
 
-  const sourceLevelThreeId = getSourceLevelThreeId(record);
-  const isCrossCenter = record.approverLevel === '总部审批';
-  const canEdit = currentStatus === '待提交' || currentStatus === '已驳回';
-  const canReview = currentStatus === '待分中心审核' || currentStatus === '待总部审核';
+  const relatedLevelThreeBatches = useMemo(() => getRelatedLevelThreeBatches(record), [record]);
+  const canEdit = currentStatus === '待提交';
+  const canReview = currentStatus === '待审核';
   const canUploadInvoice = currentStatus === '待上传发票';
-  const showInvoiceSection = ['待分中心审核', '待总部审核', '待上传发票', '已归档'].includes(currentStatus);
+  const showInvoiceSection = ['待上传发票', '已归档'].includes(currentStatus);
   const approvalLogs = useMemo(() => createApprovalLogs(record), [record]);
-  const sourceBatchName = formatBatchName(record.workDays, record.amount, '2026-04-05 10:16');
 
-  const monthlyRows = useMemo(() => buildMonthlyRows(personRows), [personRows]);
-
-  const positionRows = useMemo<PositionSummaryRow[]>(() => {
-    const grouped = new Map<string, PositionSummaryRow>();
-
-    personRows.forEach((item) => {
-      const current = grouped.get(item.position);
-      const nextLevel3Days = roundValue((current?.level3Days || 0) + item.level3Days);
-      const nextLevel4Days = roundValue((current?.level4Days || 0) + item.level4Days);
-      const nextLevel3Amount = roundValue((current?.level3Amount || 0) + item.level3Amount);
-      const nextLevel4Amount = roundValue((current?.level4Amount || 0) + item.level4Amount);
-
-      grouped.set(item.position, {
-        id: `${record.id}-${item.position}`,
-        position: item.position,
-        unitPrice: item.unitPrice,
-        level3Days: nextLevel3Days,
-        level4Days: nextLevel4Days,
-        level3Amount: nextLevel3Amount,
-        level4Amount: nextLevel4Amount,
-        hasDiff:
-          Math.abs(nextLevel3Days - nextLevel4Days) > 0.01 ||
-          Math.abs(nextLevel3Amount - nextLevel4Amount) > 0.01,
-        modified: (current?.modified || false) || item.modified,
-      });
-    });
-
-    return Array.from(grouped.values());
-  }, [personRows, record.id]);
-
-  const filteredPositionRows = useMemo(
-    () => positionRows.filter((item) => matchesQuickFilter(item, quickFilter)),
-    [positionRows, quickFilter],
-  );
-
-  useEffect(() => {
-    if (!filteredPositionRows.length) {
-      setSelectedPosition('');
-      return;
-    }
-
-    if (!selectedPosition || !filteredPositionRows.some((item) => item.position === selectedPosition)) {
-      setSelectedPosition(filteredPositionRows[0].position);
-    }
-  }, [filteredPositionRows, selectedPosition]);
+  const monthlyRows = useMemo(() => buildMonthlyRows(personRows, amountOverrides), [amountOverrides, personRows]);
 
   const filteredPersonRows = useMemo(
     () =>
       monthlyRows.filter((item) => {
-        if (item.position !== selectedPosition) {
-          return false;
-        }
+        const matchedQuickFilter = matchesQuickFilter(item, quickFilter);
+        const matchedMember = !memberKeyword.trim() || item.member.includes(memberKeyword.trim());
+        const matchedPosition = !positionFilter || item.position === positionFilter;
+        const matchedMonth = !monthFilter || item.month === monthFilter;
 
-        return matchesQuickFilter(item, quickFilter);
+        return matchedQuickFilter && matchedMember && matchedPosition && matchedMonth;
       }),
-    [monthlyRows, quickFilter, selectedPosition],
+    [memberKeyword, monthFilter, monthlyRows, positionFilter, quickFilter],
+  );
+
+  const positionOptions = useMemo(
+    () => Array.from(new Set(monthlyRows.map((item) => item.position))),
+    [monthlyRows],
   );
 
   useEffect(() => {
@@ -670,22 +669,6 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   useEffect(() => {
     setDailyDetailFilter('all');
   }, [selectedMonthlyDetailId]);
-
-  const monthGroups = useMemo(
-    () =>
-      QUARTER_MONTHS.map((month) => {
-        const rows = filteredPersonRows.filter((item) => item.month === month);
-
-        return {
-          month,
-          rows,
-          totalLevel3Days: roundValue(rows.reduce((sum, item) => sum + item.level3Days, 0)),
-          totalLevel4Days: roundValue(rows.reduce((sum, item) => sum + item.level4Days, 0)),
-          totalLevel4Amount: roundValue(rows.reduce((sum, item) => sum + item.level4Amount, 0)),
-        };
-      }).filter((group) => group.rows.length > 0),
-    [filteredPersonRows],
-  );
 
   const selectedMonthlyRow = useMemo(
     () => filteredPersonRows.find((item) => item.id === selectedMonthlyDetailId) || null,
@@ -754,10 +737,10 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   }, [dailyDetailFilter, selectedDailyDisplayRows]);
 
   const totalPositionSummary = useMemo(() => {
-    const level3Days = roundValue(positionRows.reduce((sum, item) => sum + item.level3Days, 0));
-    const level4Days = roundValue(positionRows.reduce((sum, item) => sum + item.level4Days, 0));
-    const level3Amount = roundValue(positionRows.reduce((sum, item) => sum + item.level3Amount, 0));
-    const level4Amount = roundValue(positionRows.reduce((sum, item) => sum + item.level4Amount, 0));
+    const level3Days = roundValue(monthlyRows.reduce((sum, item) => sum + item.level3Days, 0));
+    const level4Days = roundValue(monthlyRows.reduce((sum, item) => sum + item.level4Days, 0));
+    const level3Amount = roundValue(monthlyRows.reduce((sum, item) => sum + item.level3Amount, 0));
+    const level4Amount = roundValue(monthlyRows.reduce((sum, item) => sum + item.level4Amount, 0));
     const adjustmentAmount = Number(totalAdjustmentAmount) || 0;
     const adjustedLevel4Amount = roundValue(level4Amount + adjustmentAmount);
 
@@ -772,7 +755,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
         Math.abs(level3Days - level4Days) > 0.01 ||
         Math.abs(level3Amount - adjustedLevel4Amount) > 0.01,
     };
-  }, [positionRows, totalAdjustmentAmount]);
+  }, [monthlyRows, totalAdjustmentAmount]);
 
   useEffect(() => {
     if (totalAdjustmentTouched) {
@@ -782,14 +765,14 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     setTotalAdjustmentAmount(String(roundValue(totalPositionSummary.level3Amount - totalPositionSummary.level4Amount)));
   }, [totalAdjustmentTouched, totalPositionSummary.level3Amount, totalPositionSummary.level4Amount]);
 
-  const selectedPositionHasModifiedRows = useMemo(
-    () => monthlyRows.some((item) => item.position === selectedPosition && item.modified),
-    [monthlyRows, selectedPosition],
-  );
-
   const selectedMonthlyHasModifiedRows = useMemo(
     () => personRows.some((item) => item.summaryId === selectedMonthlyDetailId && item.modified),
     [personRows, selectedMonthlyDetailId],
+  );
+
+  const filteredHasModifiedRows = useMemo(
+    () => filteredPersonRows.some((item) => item.modified),
+    [filteredPersonRows],
   );
 
   const uploadedInvoiceAmount = useMemo(
@@ -799,15 +782,14 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   const invoiceAmountGap = roundValue(uploadedInvoiceAmount - totalPositionSummary.adjustedLevel4Amount);
   const invoiceCompareMatched =
     uploadedInvoices.length > 0 &&
-    Math.abs(invoiceAmountGap) <= 0.01 &&
-    uploadedInvoices.every((item) => item.recognitionStatus === '识别一致');
+    Math.abs(invoiceAmountGap) <= 0.01;
   const invoiceCompareStatusText = currentStatus === '已归档'
-    ? '识别一致，已归档'
+    ? '金额匹配，已归档'
     : invoiceCompareMatched
-      ? '识别一致，可归档'
+      ? '金额匹配，可归档'
       : currentStatus === '待上传发票'
-        ? '待识别比对'
-        : '待审批通过后识别';
+        ? '待补齐上传金额'
+        : '待审批通过后上传';
 
   const updateDailyLevel4Days = (id: string, value: string) => {
     const level4Days = Math.max(0, Number(value) || 0);
@@ -906,12 +888,14 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     );
   };
 
-  const revertSelectedPositionRows = () => {
+  const revertFilteredRows = () => {
+    const filteredIds = new Set(filteredPersonRows.map((item) => item.id));
+
     setPersonRows((prev) =>
       prev
-        .filter((item) => item.position !== selectedPosition || initialPersonRowMap.has(item.id))
+        .filter((item) => !filteredIds.has(item.summaryId) || initialPersonRowMap.has(item.id))
         .map((item) => {
-          if (item.position !== selectedPosition) {
+          if (!filteredIds.has(item.summaryId)) {
             return item;
           }
 
@@ -919,6 +903,14 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
           return original ? { ...original } : item;
         }),
     );
+
+    setAmountOverrides((prev) => {
+      const next = { ...prev };
+      filteredIds.forEach((id) => {
+        delete next[id];
+      });
+      return next;
+    });
   };
 
   const revertMonthlyRow = (summaryId: string) => {
@@ -934,13 +926,104 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
           return original ? { ...original } : item;
         }),
     );
+
+    setAmountOverrides((prev) => {
+      const next = { ...prev };
+      delete next[summaryId];
+      return next;
+    });
   };
 
-  const toggleMonth = (month: string) => {
-    setExpandedMonths((prev) => ({
+  const openAdjustmentModal = (summaryId: string, type: AdjustmentType) => {
+    const currentRow = monthlyRows.find((item) => item.id === summaryId);
+
+    if (!currentRow) {
+      return;
+    }
+
+    setAdjustmentModal({ summaryId, type });
+    setDraftAdjustmentReason('');
+    setDraftAdjustmentValue(String(type === 'capacity' ? roundValue(currentRow.level4Days) : roundValue(currentRow.level4Amount)));
+  };
+
+  const closeAdjustmentModal = () => {
+    setAdjustmentModal(null);
+    setDraftAdjustmentReason('');
+    setDraftAdjustmentValue('');
+  };
+
+  const currentAdjustmentRow = useMemo(
+    () => (adjustmentModal ? monthlyRows.find((item) => item.id === adjustmentModal.summaryId) || null : null),
+    [adjustmentModal, monthlyRows],
+  );
+
+  const currentAdjustmentRecords = useMemo(
+    () => (adjustmentModal ? adjustmentHistoryMap[adjustmentModal.summaryId] || [] : []),
+    [adjustmentHistoryMap, adjustmentModal],
+  );
+
+  const saveAdjustment = () => {
+    if (!adjustmentModal || !currentAdjustmentRow || !draftAdjustmentReason.trim()) {
+      return;
+    }
+
+    const nextValue = Math.max(0, Number(draftAdjustmentValue) || 0);
+    const beforeValue = adjustmentModal.type === 'capacity' ? currentAdjustmentRow.level4Days : currentAdjustmentRow.level4Amount;
+
+    if (adjustmentModal.type === 'capacity') {
+      const targetRows = personRows.filter((item) => item.summaryId === adjustmentModal.summaryId);
+      const nextDailyCapacities = createDailyCapacities(nextValue, targetRows.length);
+      let currentIndex = 0;
+
+      setPersonRows((prev) =>
+        prev.map((item) => {
+          if (item.summaryId !== adjustmentModal.summaryId) {
+            return item;
+          }
+
+          const level4Days = nextDailyCapacities[currentIndex] ?? 0;
+          currentIndex += 1;
+
+          return {
+            ...item,
+            level4Days,
+            level4Amount: roundValue(level4Days * item.unitPrice),
+            reason: draftAdjustmentReason.trim(),
+            modified: true,
+          };
+        }),
+      );
+
+      setAmountOverrides((prev) => {
+        const next = { ...prev };
+        delete next[adjustmentModal.summaryId];
+        return next;
+      });
+    } else {
+      setAmountOverrides((prev) => ({
+        ...prev,
+        [adjustmentModal.summaryId]: roundValue(nextValue),
+      }));
+    }
+
+    setAdjustmentHistoryMap((prev) => ({
       ...prev,
-      [month]: !prev[month],
+      [adjustmentModal.summaryId]: [
+        {
+          id: `${adjustmentModal.summaryId}-${adjustmentModal.type}-${Date.now()}`,
+          summaryId: adjustmentModal.summaryId,
+          type: adjustmentModal.type,
+          beforeValue: roundValue(beforeValue),
+          afterValue: roundValue(nextValue),
+          reason: draftAdjustmentReason.trim(),
+          operator: record.handler,
+          time: nowText(),
+        },
+        ...(prev[adjustmentModal.summaryId] || []),
+      ],
     }));
+
+    closeAdjustmentModal();
   };
 
   const openTotalAdjustmentModal = () => {
@@ -961,85 +1044,69 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   };
 
   const handleInvoiceFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const fileName = event.target.files?.[0]?.name;
+    const fileNames = Array.from(event.target.files || []).map((file) => file.name);
 
-    if (!fileName) {
+    if (!fileNames.length) {
       return;
     }
 
-    const nextIndex = uploadedInvoices.length + 1;
     const remainingAmount = roundValue(totalPositionSummary.adjustedLevel4Amount - uploadedInvoiceAmount);
-    const recognizedAmount = remainingAmount > 0.01 ? remainingAmount : totalPositionSummary.adjustedLevel4Amount || record.amount;
-    const nextRecognitionDraft = createInvoiceRecognitionDraft(fileName, recognizedAmount);
+    const targetAmount = remainingAmount > 0.01 ? remainingAmount : totalPositionSummary.adjustedLevel4Amount || record.amount;
+    const nextForms = createPendingInvoiceForms(record, fileNames, uploadedInvoices.length, targetAmount);
 
-    setInvoiceForm(createRecognizedInvoiceForm(record, fileName, nextIndex, recognizedAmount));
-    setInvoiceRecognitionDraft(nextRecognitionDraft);
+    setPendingInvoiceForms(nextForms);
+    event.target.value = '';
   };
 
   const handleApplyInvoice = () => {
-    setCurrentStatus('待分中心审核');
+    setCurrentStatus('待审核');
+  };
+
+  const handleSaveDraft = () => {
+    setLastSavedAt(nowText());
   };
 
   const handleWithdrawBatch = () => {
-    setCurrentStatus('已撤回');
+    setCurrentStatus('待提交');
     setCurrentInvoiceStatus('未开票');
     setUploadedInvoices([]);
   };
 
   const handleApprove = () => {
-    if (currentStatus === '待分中心审核') {
-      if (isCrossCenter) {
-        setCurrentStatus('待总部审核');
-        return;
-      }
-
-      setCurrentStatus('待上传发票');
-      setCurrentInvoiceStatus('待上传发票');
-      return;
-    }
-
-    if (currentStatus === '待总部审核') {
+    if (currentStatus === '待审核') {
       setCurrentStatus('待上传发票');
       setCurrentInvoiceStatus('待上传发票');
     }
   };
 
   const handleReject = () => {
-    setCurrentStatus('已驳回');
+    setCurrentStatus('待提交');
     setCurrentInvoiceStatus('未开票');
   };
 
   const closeInvoiceModal = () => {
-    setInvoiceForm(createInitialInvoiceForm(record));
-    setInvoiceRecognitionDraft(null);
+    setPendingInvoiceForms([]);
     setInvoiceModalOpen(false);
   };
 
   const handleSaveInvoice = () => {
-    if (!invoiceForm.attachmentName || !invoiceRecognitionDraft) {
+    if (!pendingInvoiceForms.length) {
       return;
     }
 
-    const invoiceAmount = roundValue(Number(invoiceForm.taxInclusiveAmount) || 0);
-
     setUploadedInvoices((prev) => [
       ...prev,
-      {
-        id: `${record.id}-invoice-${prev.length + 1}`,
-        ...invoiceForm,
-        taxInclusiveAmount: String(invoiceAmount),
+      ...pendingInvoiceForms.map((item, index) => ({
+        id: `${record.id}-invoice-${prev.length + index + 1}`,
+        ...item,
+        taxInclusiveAmount: String(roundValue(Number(item.taxInclusiveAmount) || 0)),
         uploadedBy: record.handler,
         uploadedAt: nowText(),
-        recognitionFileName: `${record.customer}_${record.period}_发票识别_${String(prev.length + 1).padStart(2, '0')}.xlsx`,
-        recognitionBatchName: `识别结果 ${String(prev.length + 1).padStart(2, '0')} - ${nowText().slice(0, 10)}`,
-        recognitionAmount: invoiceRecognitionDraft.recognitionAmount,
-        recognitionTaxRate: invoiceRecognitionDraft.recognitionTaxRate,
-        recognitionStatus: invoiceRecognitionDraft.status,
-      },
+      })),
     ]);
 
     setCurrentInvoiceStatus('已上传发票');
-    closeInvoiceModal();
+    setPendingInvoiceForms([]);
   };
 
   const handleRemoveInvoice = (invoiceId: string) => {
@@ -1060,28 +1127,439 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="admin-card px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-3">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-primary transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              返回四级列表
-            </button>
-            <div className="flex items-center gap-3 text-sm flex-wrap">
-              <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${statusColorMap[currentStatus] || 'bg-cyan-100 text-primary'}`}>
-                {currentStatus}
-              </span>
-              <span className="text-on-surface-variant">是否跨中心：{isCrossCenter ? '是' : '否'}</span>
-              <span className="text-on-surface-variant">当前审批层级：{currentStatus === '待总部审核' ? '总部审批' : record.approverLevel || '分中心审批'}</span>
-              <span className="text-on-surface-variant">发票上传状态：{currentInvoiceStatus}</span>
+    <div className="space-y-4">
+      <div className="admin-card overflow-hidden">
+        <div className="border-b border-outline-variant px-5 py-4">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={onBack}
+                className="inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                返回四级列表
+              </button>
+              <div className="flex items-center gap-3 text-sm flex-wrap">
+                <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${statusColorMap[currentStatus] || 'bg-cyan-100 text-primary'}`}>
+                  {currentStatus}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-end" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-x-8 gap-y-5 px-5 py-5 md:grid-cols-2 lg:grid-cols-3">
+          <div><div className="text-xs text-on-surface-variant mb-1">客户</div><div className="text-sm font-medium text-on-surface">{record.customer}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">合同</div><div className="text-sm font-medium text-on-surface">{record.contract}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">期间</div><div className="text-sm font-medium text-on-surface">{record.period}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">所属中心</div><div className="text-sm font-medium text-on-surface">{record.operationCenter}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">四级产能</div><div className="text-sm font-medium text-on-surface">{formatNumber(totalPositionSummary.level4Days)}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">四级金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(totalPositionSummary.adjustedLevel4Amount)}</div></div>
+        </div>
+        <div className="border-t border-outline-variant bg-surface-container-low px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-semibold text-on-surface">关联三级批次信息</div>
+            </div>
+            <div className="text-xs text-on-surface-variant">共 {relatedLevelThreeBatches.length} 条</div>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border border-outline-variant bg-white">
+            <table className="w-full min-w-[920px] table-fixed border-collapse text-left">
+              <thead>
+                <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
+                  <th className="w-[15%] px-4 py-3">三级单号</th>
+                  <th className="w-[12%] px-4 py-3">客户</th>
+                  <th className="w-[31%] px-4 py-3">合同</th>
+                  <th className="w-[14%] px-4 py-3">运营中心</th>
+                  <th className="w-[10%] px-4 py-3">产能人天</th>
+                  <th className="w-[10%] px-4 py-3">金额</th>
+                  <th className="w-[8%] px-4 py-3">办理人</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
+                {relatedLevelThreeBatches.map((item) => (
+                  <tr key={item.id} className="hover:bg-surface-container-low/60 transition-colors">
+                    <td className="px-4 py-3.5 font-medium">
+                      {onOpenLevelThreeSource ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenLevelThreeSource(item.id)}
+                          className="text-primary hover:text-primary/80 transition-colors"
+                        >
+                          {item.id}
+                        </button>
+                      ) : (
+                        item.id
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5">{item.customer}</td>
+                    <td className="px-4 py-3.5 text-on-surface-variant">{item.contract}</td>
+                    <td className="px-4 py-3.5">{item.operationCenter}</td>
+                    <td className="px-4 py-3.5">{formatNumber(item.workDays)}</td>
+                    <td className="px-4 py-3.5">{formatCurrency(item.amount)}</td>
+                    <td className="px-4 py-3.5">{item.handler}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {showInvoiceSection && (
+        <div className="admin-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-outline-variant px-5 py-3 gap-3 flex-wrap">
+            <div className="text-sm font-semibold text-on-surface">发票展示区</div>
+          </div>
+          <div className="space-y-4 px-5 py-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div><div className="mb-1 text-xs text-on-surface-variant">发票上传状态</div><div className="text-sm font-medium text-on-surface">{currentInvoiceStatus}</div></div>
+              <div><div className="mb-1 text-xs text-on-surface-variant">四级申请金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(totalPositionSummary.adjustedLevel4Amount)}</div></div>
+              <div><div className="mb-1 text-xs text-on-surface-variant">已上传发票金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(uploadedInvoiceAmount)}</div></div>
+              <div><div className="mb-1 text-xs text-on-surface-variant">归档校验</div><div className={`text-sm font-medium ${invoiceCompareMatched || currentStatus === '已归档' ? 'text-emerald-600' : 'text-amber-600'}`}>{invoiceCompareStatusText}</div></div>
+            </div>
+            {!!uploadedInvoices.length && (
+              <div className="space-y-3">
+                {uploadedInvoices.map((item, index) => (
+                  <div key={item.id} className="rounded-2xl border border-outline-variant bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div>
+                        <div className="text-sm font-semibold text-on-surface">发票 {String(index + 1).padStart(2, '0')}</div>
+                        <div className="mt-1 text-xs text-on-surface-variant">附件：{item.attachmentName}</div>
+                      </div>
+                      {canUploadInvoice && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveInvoice(item.id)}
+                          className="text-xs text-rose-600 hover:text-rose-700 transition-colors"
+                        >
+                          删除
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div><div className="mb-1 text-xs text-on-surface-variant">发票号码</div><div className="text-sm font-medium text-on-surface">{item.invoiceNumber}</div></div>
+                      <div><div className="mb-1 text-xs text-on-surface-variant">发票代码</div><div className="text-sm font-medium text-on-surface">{item.invoiceCode}</div></div>
+                      <div><div className="mb-1 text-xs text-on-surface-variant">开票日期</div><div className="text-sm font-medium text-on-surface">{item.invoiceDate}</div></div>
+                      <div><div className="mb-1 text-xs text-on-surface-variant">含税金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(Number(item.taxInclusiveAmount) || 0)}</div></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="admin-card overflow-hidden">
+        <div className="space-y-4 px-5 py-5">
+          <div className="rounded-2xl border border-outline-variant overflow-hidden">
+            <SectionTitle title="汇总人员明细" />
+            <div className="border-b border-outline-variant px-5 py-3">
+              <div className="flex items-center justify-start gap-3 whitespace-nowrap overflow-x-auto custom-scrollbar">
+                <input
+                  type="text"
+                  value={memberKeyword}
+                  onChange={(event) => setMemberKeyword(event.target.value)}
+                  placeholder="按姓名筛选"
+                  className="admin-input h-9 w-[140px] shrink-0 px-3 text-sm"
+                />
+                <select
+                  value={positionFilter}
+                  onChange={(event) => setPositionFilter(event.target.value)}
+                  className="admin-input h-9 w-[150px] shrink-0 px-3 text-sm"
+                >
+                  <option value="">全部合同岗位</option>
+                  {positionOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+                <select
+                  value={monthFilter}
+                  onChange={(event) => setMonthFilter(event.target.value)}
+                  className="admin-input h-9 w-[110px] shrink-0 px-3 text-sm"
+                >
+                  <option value="">全部月份</option>
+                  {QUARTER_MONTHS.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setQuickFilter((prev) => (prev === 'diff' ? 'all' : 'diff'))}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs transition-colors ${
+                    quickFilter === 'diff'
+                      ? 'bg-primary text-white'
+                      : 'border border-outline-variant bg-white text-on-surface-variant hover:bg-surface-container-low'
+                  }`}
+                >
+                  仅看差异
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickFilter((prev) => (prev === 'modified' ? 'all' : 'modified'))}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs transition-colors ${
+                    quickFilter === 'modified'
+                      ? 'bg-primary text-white'
+                      : 'border border-outline-variant bg-white text-on-surface-variant hover:bg-surface-container-low'
+                  }`}
+                >
+                  仅看已修改
+                </button>
+                {canEdit && filteredHasModifiedRows && (
+                  <button
+                    type="button"
+                    onClick={revertFilteredRows}
+                    className="shrink-0 text-xs text-amber-700 hover:text-amber-800 transition-colors"
+                  >
+                    撤销当前筛选结果修改
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto custom-scrollbar">
+              <table className="w-full min-w-[1220px] text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
+                    <th className="w-[112px] px-4 py-3">人员</th>
+                    <th className="w-[96px] px-4 py-3">合同岗位</th>
+                    <th className="w-[84px] px-4 py-3">月份</th>
+                    <th className="px-4 py-3">三级产能</th>
+                    <th className="px-4 py-3 bg-amber-50 text-amber-700">四级产能</th>
+                    <th className="px-4 py-3">单价</th>
+                    <th className="px-4 py-3">四级金额</th>
+                    <th className="sticky right-0 z-10 w-[220px] border-l border-outline-variant bg-surface-container-low px-3 py-3">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
+                  {!filteredPersonRows.length && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                        当前筛选条件下暂无符合条件的人员明细
+                      </td>
+                    </tr>
+                  )}
+                  {filteredPersonRows.map((item) => (
+                    <tr key={item.id} className="group hover:bg-surface-container-low transition-colors">
+                      <td className="px-4 py-4 font-medium">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>{item.member}</span>
+                          <RowTags hasDiff={item.hasDiff} modified={item.modified} />
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-on-surface-variant">{item.position}</td>
+                      <td className="px-4 py-4 text-on-surface-variant">{item.month}</td>
+                      <td className="px-4 py-4">{formatNumber(item.level3Days)}</td>
+                      <td className="px-4 py-4">{formatNumber(item.level4Days)}</td>
+                      <td className="px-4 py-4">{formatCurrency(item.unitPrice)}</td>
+                      <td className="px-4 py-4">{formatCurrency(item.level4Amount)}</td>
+                      <td className="sticky right-0 border-l border-outline-variant bg-white px-3 py-4 group-hover:bg-surface-container-low">
+                        <div className="flex items-center justify-end gap-3 whitespace-nowrap text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMonthlyDetailId(item.id)}
+                            className="text-primary hover:text-primary/80 transition-colors"
+                          >
+                            详情
+                          </button>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => openAdjustmentModal(item.id, 'capacity')}
+                              className="text-amber-700 hover:text-amber-800 transition-colors"
+                            >
+                              调整产能
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => openAdjustmentModal(item.id, 'amount')}
+                              className="text-primary hover:text-primary/80 transition-colors"
+                            >
+                              调整金额
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {!!monthlyRows.length && (
+              <div className="border-t border-outline-variant bg-surface-container-low px-4 py-3">
+                <div className="grid gap-3 text-xs text-on-surface md:grid-cols-[0.8fr_0.8fr_0.8fr_0.9fr_1.5fr] md:items-start">
+                  <div>
+                    <div className="text-on-surface-variant">三级产能总计</div>
+                    <div className="mt-1 font-medium">{formatNumber(totalPositionSummary.level3Days)} 人天</div>
+                  </div>
+                  <div>
+                    <div className="text-on-surface-variant">四级产能总计</div>
+                    <div className="mt-1 font-medium">{formatNumber(totalPositionSummary.level4Days)} 人天</div>
+                  </div>
+                  <div>
+                    <div className="text-on-surface-variant">三级金额总计</div>
+                    <div className="mt-1 font-medium">{formatCurrency(totalPositionSummary.level3Amount)}</div>
+                  </div>
+                  <div>
+                    <div className="text-on-surface-variant">四级金额总计</div>
+                    <div className="mt-1 font-medium">{formatCurrency(totalPositionSummary.level4Amount)}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>总金额调整：{formatCurrency(totalPositionSummary.adjustmentAmount)}</span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={openTotalAdjustmentModal}
+                          className="rounded border border-outline-variant bg-white px-2.5 py-1 text-xs text-primary transition-colors hover:bg-surface-container-low"
+                        >
+                          调整
+                        </button>
+                      )}
+                    </div>
+                    {!!(totalAdjustmentTouched || totalAdjustmentReason) && <div>调整原因：{totalAdjustmentReason || '--'}</div>}
+                    <div>调整后四级金额：{formatCurrency(totalPositionSummary.adjustedLevel4Amount)}</div>
+                    <div className={totalPositionSummary.hasDiff ? 'text-amber-600' : 'text-emerald-600'}>
+                      {totalPositionSummary.hasDiff ? '当前总计与三级仍存在差异' : '总计已与三级一致'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {adjustmentModal && currentAdjustmentRow && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={closeAdjustmentModal}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">{adjustmentModal.type === 'capacity' ? '调整产能' : '调整金额'}</div>
+                <div className="mt-1 text-xs text-on-surface-variant">上部填写调整数据及调整原因，下部显示当前人员的调整记录。</div>
+              </div>
+              <button
+                type="button"
+                onClick={closeAdjustmentModal}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div className="grid grid-cols-1 gap-4 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 md:grid-cols-3">
+                <div>
+                  <div className="mb-1 text-xs text-on-surface-variant">人员</div>
+                  <div className="text-sm font-medium text-on-surface">{currentAdjustmentRow.member}</div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-on-surface-variant">合同岗位</div>
+                  <div className="text-sm font-medium text-on-surface">{currentAdjustmentRow.position}</div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-on-surface-variant">月份</div>
+                  <div className="text-sm font-medium text-on-surface">{currentAdjustmentRow.month}</div>
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-on-surface-variant">{adjustmentModal.type === 'capacity' ? '调整后四级产能' : '调整后金额'}</div>
+                <input
+                  type="number"
+                  min="0"
+                  step={adjustmentModal.type === 'capacity' ? '0.5' : '0.01'}
+                  value={draftAdjustmentValue}
+                  onChange={(event) => setDraftAdjustmentValue(event.target.value)}
+                  className="admin-input h-10 w-full px-3 text-sm"
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-on-surface-variant">调整原因</div>
+                <input
+                  type="text"
+                  value={draftAdjustmentReason}
+                  onChange={(event) => setDraftAdjustmentReason(event.target.value)}
+                  placeholder={adjustmentModal.type === 'capacity' ? '请填写产能调整原因' : '请填写金额调整原因'}
+                  className="admin-input h-10 w-full px-3 text-sm"
+                />
+              </div>
+              <div className="rounded-xl border border-outline-variant bg-white">
+                <div className="border-b border-outline-variant px-4 py-3 text-sm font-medium text-on-surface">调整记录</div>
+                <div className="max-h-[260px] overflow-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
+                        <th className="px-4 py-3">时间</th>
+                        <th className="px-4 py-3">类型</th>
+                        <th className="px-4 py-3">调整前</th>
+                        <th className="px-4 py-3">调整后</th>
+                        <th className="px-4 py-3">原因</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant text-sm">
+                      {!currentAdjustmentRecords.length && (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
+                        </tr>
+                      )}
+                      {currentAdjustmentRecords.map((item) => (
+                        <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
+                          <td className="px-4 py-3 text-on-surface-variant">{item.time}</td>
+                          <td className="px-4 py-3 text-on-surface">{item.type === 'capacity' ? '调整产能' : '调整金额'}</td>
+                          <td className="px-4 py-3 text-on-surface">{item.type === 'amount' ? formatCurrency(item.beforeValue) : `${formatNumber(item.beforeValue)} 人天`}</td>
+                          <td className="px-4 py-3 text-on-surface">{item.type === 'amount' ? formatCurrency(item.afterValue) : `${formatNumber(item.afterValue)} 人天`}</td>
+                          <td className="px-4 py-3 text-on-surface-variant">{item.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={closeAdjustmentModal}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={saveAdjustment}
+                disabled={!draftAdjustmentReason.trim()}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                保存调整
+              </button>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+        </div>
+      )}
+
+      <MainFooterPortal>
+        <div className="flex-shrink-0 flex items-center justify-center gap-1.5 px-5 py-3 text-sm bg-white border-t border-outline-variant">
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            {canEdit && (
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                className="flex items-center gap-1.5 rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                <Save className="w-3.5 h-3.5" />
+                保存
+              </button>
+            )}
             {canEdit && (
               <button
                 type="button"
@@ -1129,17 +1607,9 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 className="flex items-center gap-1.5 rounded bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 transition-colors"
               >
                 <Upload className="w-3.5 h-3.5" />
-                上传发票
+                财务上传发票
               </button>
             )}
-          </div>
-        </div>
-      </div>
-
-      {showInvoiceSection && (
-        <div className="admin-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-outline-variant px-5 py-3 gap-3 flex-wrap">
-            <div className="text-sm font-semibold text-on-surface">发票展示区</div>
             {canUploadInvoice && (
               <button
                 type="button"
@@ -1151,357 +1621,11 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
               </button>
             )}
           </div>
-          <div className="space-y-4 px-5 py-5">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div><div className="mb-1 text-xs text-on-surface-variant">发票上传状态</div><div className="text-sm font-medium text-on-surface">{currentInvoiceStatus}</div></div>
-              <div><div className="mb-1 text-xs text-on-surface-variant">四级申请金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(totalPositionSummary.adjustedLevel4Amount)}</div></div>
-              <div><div className="mb-1 text-xs text-on-surface-variant">已上传发票金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(uploadedInvoiceAmount)}</div></div>
-              <div><div className="mb-1 text-xs text-on-surface-variant">归档校验</div><div className={`text-sm font-medium ${invoiceCompareMatched || currentStatus === '已归档' ? 'text-emerald-600' : 'text-amber-600'}`}>{invoiceCompareStatusText}</div></div>
-            </div>
-            {!!uploadedInvoices.length && (
-              <div className="space-y-3">
-                {uploadedInvoices.map((item, index) => (
-                  <div key={item.id} className="rounded-2xl border border-outline-variant bg-white p-4 shadow-sm">
-                    <div className="flex items-start justify-between gap-4 flex-wrap">
-                      <div>
-                        <div className="text-sm font-semibold text-on-surface">发票 {String(index + 1).padStart(2, '0')}</div>
-                        <div className="mt-1 text-xs text-on-surface-variant">附件：{item.attachmentName}</div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${item.recognitionStatus === '识别一致' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                          {item.recognitionStatus}
-                        </span>
-                        {canUploadInvoice && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveInvoice(item.id)}
-                            className="text-xs text-rose-600 hover:text-rose-700 transition-colors"
-                          >
-                            删除
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      <div><div className="mb-1 text-xs text-on-surface-variant">发票号码</div><div className="text-sm font-medium text-on-surface">{item.invoiceNumber}</div></div>
-                      <div><div className="mb-1 text-xs text-on-surface-variant">发票代码</div><div className="text-sm font-medium text-on-surface">{item.invoiceCode}</div></div>
-                      <div><div className="mb-1 text-xs text-on-surface-variant">开票日期</div><div className="text-sm font-medium text-on-surface">{item.invoiceDate}</div></div>
-                      <div><div className="mb-1 text-xs text-on-surface-variant">含税金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(Number(item.taxInclusiveAmount) || 0)}</div></div>
-                    </div>
-                    <div className="mt-4 rounded-xl bg-surface-container-low px-4 py-3">
-                      <div className="text-xs text-on-surface-variant">对应识别结果</div>
-                      {item.recognitionStatus === '识别异常' && (
-                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                          检测到 OCR 异常：识别金额或税率与申请信息不一致，需人工复核后再归档。
-                        </div>
-                      )}
-                      <div className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <div><div className="mb-1 text-xs text-on-surface-variant">识别批次</div><div className="text-sm font-medium text-on-surface">{item.recognitionBatchName}</div></div>
-                        <div><div className="mb-1 text-xs text-on-surface-variant">识别文件</div><div className="text-sm font-medium text-on-surface">{item.recognitionFileName}</div></div>
-                        <div><div className="mb-1 text-xs text-on-surface-variant">识别金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(item.recognitionAmount)}</div></div>
-                        <div><div className="mb-1 text-xs text-on-surface-variant">识别税率</div><div className="text-sm font-medium text-on-surface">{item.recognitionTaxRate}%</div></div>
-                      </div>
-                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="rounded-lg border border-outline-variant bg-white px-3 py-2">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-on-surface-variant">票面金额</div>
-                          <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(Number(item.taxInclusiveAmount) || 0)}</div>
-                        </div>
-                        <div className={`rounded-lg border px-3 py-2 ${item.recognitionStatus === '识别一致' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-on-surface-variant">识别校验</div>
-                          <div className={`mt-1 text-sm font-semibold ${item.recognitionStatus === '识别一致' ? 'text-emerald-700' : 'text-amber-800'}`}>
-                            {item.recognitionStatus === '识别一致'
-                              ? '票面与识别结果一致'
-                              : `差异 ${formatCurrency(Math.abs((Number(item.taxInclusiveAmount) || 0) - item.recognitionAmount))}`}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {canEdit && lastSavedAt && (
+            <div className="text-xs text-on-surface-variant">已保存：{lastSavedAt}</div>
+          )}
         </div>
-      )}
-
-      <div className="admin-card overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-outline-variant px-5 py-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="min-w-[300px] rounded border border-outline-variant bg-surface-container-low px-3 py-2 text-xs text-on-surface">
-              {sourceBatchName}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            <button
-              type="button"
-              onClick={() => onOpenLevelThreeSource?.(sourceLevelThreeId)}
-              className="text-xs text-primary hover:text-primary/80 transition-colors"
-            >
-              查看三级确认单
-            </button>
-            <button className="flex items-center gap-1.5 rounded border border-outline-variant bg-white px-3 py-1.5 text-xs text-on-surface-variant hover:bg-surface-container-low transition-colors">
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              查看原始文件
-            </button>
-            <button className="flex items-center gap-1.5 rounded border border-outline-variant bg-white px-3 py-1.5 text-xs text-on-surface-variant hover:bg-surface-container-low transition-colors">
-              <Download className="w-3.5 h-3.5" />
-              下载原始文件
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-x-8 gap-y-5 px-5 py-5 md:grid-cols-2 lg:grid-cols-3">
-          <div><div className="text-xs text-on-surface-variant mb-1">客户</div><div className="text-sm font-medium text-on-surface">{record.customer}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">合同</div><div className="text-sm font-medium text-on-surface">{record.contract}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">期间</div><div className="text-sm font-medium text-on-surface">{record.period}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">所属中心</div><div className="text-sm font-medium text-on-surface">{record.operationCenter}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">三级确认产能</div><div className="text-sm font-medium text-on-surface">{formatNumber(record.workDays)}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">三级确认金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(record.amount)}</div></div>
-        </div>
-        <div className="border-t border-outline-variant bg-surface-container-low px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
-          <div className="text-xs text-on-surface-variant flex items-center gap-2">
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            原始文件：{record.customer}_{record.period}_三级确认结果.xlsx
-          </div>
-          <div className="text-xs text-on-surface-variant">
-            关联三级单号：
-            <button
-              type="button"
-              onClick={() => onOpenLevelThreeSource?.(sourceLevelThreeId)}
-              className="ml-1 text-primary hover:text-primary/80 transition-colors"
-            >
-              {sourceLevelThreeId}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="admin-card overflow-hidden">
-        <div className="border-b border-outline-variant bg-primary/5 px-5 py-4">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="text-sm font-semibold text-on-surface">联动筛选区</div>
-              <div className="mt-1 text-xs text-on-surface-variant">
-                左侧显示多个合同岗位，右侧人员产能明细按月展示；进入详情后按天调整四级产能。
-              </div>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <QuickFilterTabs value={quickFilter} onChange={setQuickFilter} />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-0 xl:grid-cols-[0.95fr_1.2fr]">
-          <div className="flex min-h-[680px] flex-col overflow-hidden border-b border-outline-variant xl:border-b-0 xl:border-r xl:border-outline-variant">
-            <SectionTitle
-              title="合同岗位汇总信息"
-              extra={
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="text-xs text-amber-600 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    差异=四级产能与三级确认结果不一致
-                  </div>
-                  <div className="text-xs text-on-surface-variant">
-                    点击岗位后，右侧人员产能明细同步切换
-                  </div>
-                </div>
-              }
-            />
-            <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-              <table className="w-full table-fixed text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
-                    <th className="w-[18%] px-3 py-2.5">合同岗位</th>
-                    <th className="w-[14%] px-3 py-2.5">单价</th>
-                    <th className="w-[14%] px-3 py-2.5">三级产能</th>
-                    <th className="w-[14%] px-3 py-2.5">四级产能</th>
-                    <th className="w-[20%] px-3 py-2.5">三级金额</th>
-                    <th className="w-[20%] px-3 py-2.5">四级金额</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
-                  {!filteredPositionRows.length && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-8 text-center text-sm text-on-surface-variant">
-                        当前筛选条件下暂无合同岗位数据
-                      </td>
-                    </tr>
-                  )}
-                  {filteredPositionRows.map((item) => {
-                    const isSelected = item.position === selectedPosition;
-
-                    return (
-                      <tr
-                        key={item.id}
-                        onClick={() => setSelectedPosition(item.position)}
-                        className={`cursor-pointer transition-colors ${
-                          isSelected ? 'bg-primary/5' : 'hover:bg-surface-container-low'
-                        }`}
-                      >
-                        <td className="px-3 py-3 align-top">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-on-surface">{item.position}</span>
-                            <RowTags hasDiff={item.hasDiff} modified={item.modified} />
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 align-top text-xs">{formatCurrency(item.unitPrice)}</td>
-                        <td className="px-3 py-3 align-top text-xs">{formatNumber(item.level3Days)}</td>
-                        <td className="px-3 py-3 align-top text-xs">{formatNumber(item.level4Days)}</td>
-                        <td className="px-3 py-3 align-top text-xs">{formatCurrency(item.level3Amount)}</td>
-                        <td className="px-3 py-3 align-top text-xs">
-                          <div className="space-y-0.5 leading-5 break-words">
-                            <div>{formatCurrency(item.level4Amount)}</div>
-                            <div className={item.hasDiff ? 'text-amber-600' : 'text-emerald-600'}>
-                              {item.hasDiff ? '与三级存在差异' : '与三级一致'}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {!!positionRows.length && (
-              <div className="border-t border-outline-variant bg-surface-container-low px-4 py-3">
-                <div className="grid gap-3 text-xs text-on-surface md:grid-cols-[1.1fr_0.8fr_0.8fr_0.8fr_1fr_1.4fr] md:items-start">
-                  <div className="font-semibold text-sm text-on-surface">合同岗位总计</div>
-                  <div>
-                    <div className="text-on-surface-variant">单价</div>
-                    <div>--</div>
-                  </div>
-                  <div>
-                    <div className="text-on-surface-variant">三级产能</div>
-                    <div className="font-medium">{formatNumber(totalPositionSummary.level3Days)}</div>
-                  </div>
-                  <div>
-                    <div className="text-on-surface-variant">四级产能</div>
-                    <div className="font-medium">{formatNumber(totalPositionSummary.level4Days)}</div>
-                  </div>
-                  <div>
-                    <div className="text-on-surface-variant">三级金额</div>
-                    <div className="font-medium">{formatCurrency(totalPositionSummary.level3Amount)}</div>
-                  </div>
-                  <div className="space-y-1">
-                    <div>四级金额：{formatCurrency(totalPositionSummary.level4Amount)}</div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span>总金额调整：{formatCurrency(totalPositionSummary.adjustmentAmount)}</span>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={openTotalAdjustmentModal}
-                          className="rounded border border-outline-variant bg-white px-2.5 py-1 text-xs text-primary transition-colors hover:bg-surface-container-low"
-                        >
-                          调整
-                        </button>
-                      )}
-                    </div>
-                    {!!(totalAdjustmentTouched || totalAdjustmentReason) && <div>调整原因：{totalAdjustmentReason || '--'}</div>}
-                    <div>调整后四级金额：{formatCurrency(totalPositionSummary.adjustedLevel4Amount)}</div>
-                    <div className={totalPositionSummary.hasDiff ? 'text-amber-600' : 'text-emerald-600'}>
-                      {totalPositionSummary.hasDiff ? '当前总计与三级仍存在差异' : '总计已与三级一致'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="flex min-h-[680px] flex-col overflow-hidden">
-            <SectionTitle
-              title="人员产能明细"
-              extra={
-                <div className="flex items-center gap-3">
-                  <div className="text-xs text-on-surface-variant">
-                    跟随左侧合同岗位联动，当前选中：{selectedPosition || '--'}
-                  </div>
-                  {canEdit && selectedPositionHasModifiedRows && (
-                    <button
-                      type="button"
-                      onClick={revertSelectedPositionRows}
-                      className="text-xs text-amber-700 hover:text-amber-800 transition-colors"
-                    >
-                      撤销当前岗位修改
-                    </button>
-                  )}
-                </div>
-              }
-            />
-            <div className="flex-1 overflow-auto custom-scrollbar">
-              <table className="w-full min-w-[840px] text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
-                    <th className="w-[112px] px-4 py-3">人员</th>
-                    <th className="w-[84px] px-4 py-3">月份</th>
-                    <th className="px-4 py-3">三级产能</th>
-                    <th className="px-4 py-3 bg-amber-50 text-amber-700">四级产能</th>
-                    <th className="px-4 py-3">单价</th>
-                    <th className="px-4 py-3">四级金额</th>
-                    <th className="sticky right-0 z-10 w-[88px] border-l border-outline-variant bg-surface-container-low px-3 py-3">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
-                  {!filteredPersonRows.length && (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-10 text-center text-sm text-on-surface-variant">
-                        当前合同岗位下暂无符合筛选条件的人员明细
-                      </td>
-                    </tr>
-                  )}
-                  {monthGroups.map((group) => (
-                    <React.Fragment key={group.month}>
-                      <tr className="bg-surface-container-low/80 text-xs text-on-surface-variant">
-                        <td colSpan={7} className="px-4 py-2.5">
-                          <button
-                            type="button"
-                            onClick={() => toggleMonth(group.month)}
-                            className="flex w-full items-center justify-between gap-3 text-left"
-                          >
-                            <div className="flex items-center gap-2">
-                              {expandedMonths[group.month] ? (
-                                <ChevronUp className="w-3.5 h-3.5 text-on-surface-variant" />
-                              ) : (
-                                <ChevronDown className="w-3.5 h-3.5 text-on-surface-variant" />
-                              )}
-                              <span className="font-semibold text-on-surface">{group.month}</span>
-                            </div>
-                            <span>
-                              本月小计：三级 {formatNumber(group.totalLevel3Days)} 人天 / 四级 {formatNumber(group.totalLevel4Days)} 人天 / {formatCurrency(group.totalLevel4Amount)}
-                            </span>
-                          </button>
-                        </td>
-                      </tr>
-                      {expandedMonths[group.month] && group.rows.map((item) => (
-                        <tr key={item.id} className="group hover:bg-surface-container-low transition-colors">
-                          <td className="px-4 py-4 font-medium">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span>{item.member}</span>
-                              <RowTags hasDiff={item.hasDiff} modified={item.modified} />
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 text-on-surface-variant">{item.month}</td>
-                          <td className="px-4 py-4">{formatNumber(item.level3Days)}</td>
-                          <td className="px-4 py-4">{formatNumber(item.level4Days)}</td>
-                          <td className="px-4 py-4">{formatCurrency(item.unitPrice)}</td>
-                          <td className="px-4 py-4">{formatCurrency(item.level4Amount)}</td>
-                          <td className="sticky right-0 border-l border-outline-variant bg-white px-3 py-4 group-hover:bg-surface-container-low">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedMonthlyDetailId(item.id)}
-                              className="text-xs text-primary hover:text-primary/80 transition-colors"
-                            >
-                              详情
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
+      </MainFooterPortal>
 
       {selectedMonthlyRow && (
         <div
@@ -1774,7 +1898,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
               <div>
                 <div className="text-base font-semibold text-on-surface">上传发票</div>
                 <div className="mt-1 text-xs text-on-surface-variant">
-                  销售可分多次上传发票，上传后将在详情页展示发票及对应识别结果。
+                  财务可一次选择多张发票上传，上传后在详情页按发票清单展示。
                 </div>
               </div>
               <button
@@ -1789,8 +1913,8 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
             <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-2">
               <div className="md:col-span-2 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
                 <div className="text-xs text-on-surface-variant">上传说明</div>
-                <div className="mt-1 text-sm font-medium text-on-surface">当前已上传 {uploadedInvoices.length} 张发票，支持继续上传发票文件。</div>
-                <div className="mt-1 text-xs text-on-surface-variant">上传后系统自动识别发票号码、代码、日期、金额和税率，再回填到发票展示区。文件名包含“异常”可预览人工复核分支。</div>
+                <div className="mt-1 text-sm font-medium text-on-surface">当前已上传 {uploadedInvoices.length} 张发票，支持财务继续上传发票文件。</div>
+                <div className="mt-1 text-xs text-on-surface-variant">支持一次选择多张发票文件，系统按上传顺序生成发票清单并累计上传金额。</div>
               </div>
               <div>
                 <div className="mb-1 text-xs text-on-surface-variant">开票申请单号</div>
@@ -1805,98 +1929,77 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 <input
                   type="file"
                   accept=".pdf,.jpg,.jpeg,.png,.ofd,.zip"
+                  multiple
                   onChange={handleInvoiceFileSelect}
                   className="block w-full rounded border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface file:mr-3 file:rounded file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-primary"
                 />
                 <div className="mt-2 text-xs text-on-surface-variant">支持 PDF、图片、OFD 或压缩包。</div>
               </div>
               <div className="md:col-span-2 rounded-xl border border-outline-variant bg-white px-4 py-4">
-                <div className="text-xs text-on-surface-variant">识别结果预览</div>
-                {invoiceForm.attachmentName && invoiceRecognitionDraft ? (
-                  <div className="mt-3 overflow-hidden rounded-2xl border border-outline-variant bg-[#fbfaf6] shadow-sm">
-                    <div className="flex items-center justify-between gap-3 border-b border-dashed border-outline-variant px-4 py-3 flex-wrap">
-                      <div>
-                        <div className="text-sm font-semibold text-on-surface">OCR 识别回执</div>
-                        <div className="mt-1 text-xs text-on-surface-variant">扫描件：{invoiceForm.attachmentName}</div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${invoiceRecognitionDraft.status === '识别一致' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
-                          {invoiceRecognitionDraft.status}
-                        </span>
-                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          置信度 {invoiceRecognitionDraft.confidence}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 px-4 py-4 md:grid-cols-[1.1fr_1.4fr]">
-                      <div className="rounded-2xl border border-dashed border-outline-variant bg-white p-4">
-                        <div className="text-[11px] uppercase tracking-[0.18em] text-on-surface-variant">票面定位</div>
-                        <div className="mt-3 space-y-3">
-                          <div className="rounded-xl bg-surface-container-low px-3 py-3">
-                            <div className="text-xs text-on-surface-variant">发票号码区域</div>
-                            <div className="mt-1 font-mono text-sm text-on-surface">{invoiceForm.invoiceNumber}</div>
-                          </div>
-                          <div className="rounded-xl bg-surface-container-low px-3 py-3">
-                            <div className="text-xs text-on-surface-variant">发票代码区域</div>
-                            <div className="mt-1 font-mono text-sm text-on-surface">{invoiceForm.invoiceCode}</div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-xl bg-surface-container-low px-3 py-3">
-                              <div className="text-xs text-on-surface-variant">开票日期</div>
-                              <div className="mt-1 text-sm font-medium text-on-surface">{invoiceForm.invoiceDate}</div>
-                            </div>
-                            <div className="rounded-xl bg-surface-container-low px-3 py-3">
-                              <div className="text-xs text-on-surface-variant">识别税率</div>
-                              <div className="mt-1 text-sm font-medium text-on-surface">{invoiceRecognitionDraft.recognitionTaxRate}%</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="rounded-2xl border border-outline-variant bg-white p-4">
-                          <div className="text-[11px] uppercase tracking-[0.18em] text-on-surface-variant">识别摘要</div>
-                          <div className="mt-2 text-sm font-medium text-on-surface">{invoiceRecognitionDraft.summary}</div>
-                          {invoiceRecognitionDraft.issue && (
-                            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                              {invoiceRecognitionDraft.issue}
-                            </div>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div className="rounded-2xl border border-outline-variant bg-white p-4">
-                            <div className="text-xs text-on-surface-variant">票面金额</div>
-                            <div className="mt-1 text-lg font-semibold text-on-surface">{formatCurrency(Number(invoiceForm.taxInclusiveAmount) || 0)}</div>
-                          </div>
-                          <div className={`rounded-2xl border p-4 ${invoiceRecognitionDraft.status === '识别一致' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                            <div className="text-xs text-on-surface-variant">OCR 识别金额</div>
-                            <div className={`mt-1 text-lg font-semibold ${invoiceRecognitionDraft.status === '识别一致' ? 'text-emerald-700' : 'text-amber-800'}`}>
-                              {formatCurrency(invoiceRecognitionDraft.recognitionAmount)}
-                            </div>
-                            <div className="mt-2 text-xs text-on-surface-variant">
-                              {invoiceRecognitionDraft.status === '识别一致'
-                                ? '金额与申请单一致，可直接入卡。'
-                                : `差异 ${formatCurrency(Math.abs((Number(invoiceForm.taxInclusiveAmount) || 0) - invoiceRecognitionDraft.recognitionAmount))}，建议复核后上传。`}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                <div className="text-xs text-on-surface-variant">待上传发票清单</div>
+                {pendingInvoiceForms.length ? (
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-low">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="border-b border-outline-variant bg-white text-xs font-semibold text-on-surface-variant">
+                          <th className="px-4 py-3">文件名</th>
+                          <th className="px-4 py-3">发票号码</th>
+                          <th className="px-4 py-3">开票日期</th>
+                          <th className="px-4 py-3">金额</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
+                        {pendingInvoiceForms.map((item) => (
+                          <tr key={item.attachmentName}>
+                            <td className="px-4 py-3">{item.attachmentName}</td>
+                            <td className="px-4 py-3">{item.invoiceNumber}</td>
+                            <td className="px-4 py-3">{item.invoiceDate}</td>
+                            <td className="px-4 py-3">{formatCurrency(Number(item.taxInclusiveAmount) || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 ) : (
-                  <div className="mt-2 text-sm text-on-surface-variant">选择发票文件后展示识别结果预览。</div>
+                  <div className="mt-2 text-sm text-on-surface-variant">选择一张或多张发票文件后，会在这里生成待上传清单。</div>
+                )}
+              </div>
+              <div className="md:col-span-2 rounded-xl border border-outline-variant bg-white px-4 py-4">
+                <div className="text-xs text-on-surface-variant">已上传发票</div>
+                {uploadedInvoices.length ? (
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-low">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="border-b border-outline-variant bg-white text-xs font-semibold text-on-surface-variant">
+                          <th className="px-4 py-3">文件名</th>
+                          <th className="px-4 py-3">发票号码</th>
+                          <th className="px-4 py-3">开票日期</th>
+                          <th className="px-4 py-3">金额</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
+                        {uploadedInvoices.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3">{item.attachmentName}</td>
+                            <td className="px-4 py-3">{item.invoiceNumber}</td>
+                            <td className="px-4 py-3">{item.invoiceDate}</td>
+                            <td className="px-4 py-3">{formatCurrency(Number(item.taxInclusiveAmount) || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-sm text-on-surface-variant">当前还没有已上传发票。</div>
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-between gap-3 border-t border-outline-variant px-5 py-4">
-              <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                以发票文件上传为主，识别结果确认后直接进入详情页卡片展示。
-              </div>
+            <div className="flex items-center justify-end gap-3 border-t border-outline-variant px-5 py-4">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleSaveInvoice}
-                  disabled={!invoiceForm.attachmentName || !invoiceRecognitionDraft}
+                  disabled={!pendingInvoiceForms.length}
                   className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
                 >
                   确认上传

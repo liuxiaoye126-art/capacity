@@ -13,6 +13,7 @@ export default function App() {
   const [selectedLevelThreeId, setSelectedLevelThreeId] = useState<string | null>(null);
   const [selectedLevelFourId, setSelectedLevelFourId] = useState<string | null>(null);
   const [selectedLevelFiveId, setSelectedLevelFiveId] = useState<string | null>(null);
+  const [level4Records, setLevel4Records] = useState(LEVEL4_DATA);
 
   const handleChangeView = (nextView: CapacityView) => {
     setView(nextView);
@@ -55,7 +56,7 @@ export default function App() {
   };
 
   const selectedLevelThreeRecord = LEVEL3_DATA.find((item) => item.id === selectedLevelThreeId) || null;
-  const selectedLevelFourRecord = LEVEL4_DATA.find((item) => item.id === selectedLevelFourId) || null;
+  const selectedLevelFourRecord = level4Records.find((item) => item.id === selectedLevelFourId) || null;
   const selectedLevelFiveRecord = LEVEL5_DATA.find((item) => item.id === selectedLevelFiveId) || null;
 
   const breadcrumbs: BreadcrumbItem[] = [
@@ -104,7 +105,16 @@ export default function App() {
       {view === 'level3' && selectedLevelThreeRecord && (
         <LevelThreeDetailPage record={selectedLevelThreeRecord} onBack={() => setSelectedLevelThreeId(null)} />
       )}
-      {view === 'level4' && !selectedLevelFourId && <LevelFourListPage onDetailClick={setSelectedLevelFourId} />}
+      {view === 'level4' && !selectedLevelFourId && (
+        <LevelFourListPage
+          data={level4Records}
+          onDetailClick={setSelectedLevelFourId}
+          onCreateRecord={(nextRecord) => {
+            setLevel4Records((prev) => [nextRecord, ...prev]);
+            setSelectedLevelFourId(nextRecord.id);
+          }}
+        />
+      )}
       {view === 'level4' && selectedLevelFourRecord && (
         <LevelFourDetailPage
           record={selectedLevelFourRecord}

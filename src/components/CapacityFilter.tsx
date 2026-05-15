@@ -1,7 +1,6 @@
 import { RefreshCw, Search } from 'lucide-react';
 import React from 'react';
 import {
-  APPROVER_LEVELS,
   CUSTOMERS,
   HANDLERS,
   INVOICE_STATUS_OPTIONS,
@@ -18,13 +17,14 @@ const LabelInput = ({ label, children }: { label: string; children: React.ReactN
 
 interface CapacityFilterProps {
   type: 'level3' | 'level4' | 'level5';
+  actions?: React.ReactNode;
 }
 
-export const CapacityFilter = ({ type }: CapacityFilterProps) => {
+export const CapacityFilter = ({ type, actions }: CapacityFilterProps) => {
   const statusOptions = {
-    level3: ['全部状态', '待调整', '待审核', '已通过'],
-    level4: ['全部状态', '待提交', '待分中心审核', '待总部审核', '待上传发票', '已归档'],
-    level5: ['全部状态', '回款中', '已回清待确认', '待分中心审核', '待总部审核', '已生效'],
+    level3: ['全部状态', '待确认', '待审核', '已通过'],
+    level4: ['全部状态', '待提交', '待审核', '待上传发票', '已归档'],
+    level5: ['全部状态', '回款中', '已回清待确认', '待审核', '已生效'],
   }[type];
 
   const keywordPlaceholder = {
@@ -73,11 +73,11 @@ export const CapacityFilter = ({ type }: CapacityFilterProps) => {
         <LabelInput label="关键字">
           <input type="text" className="admin-input" placeholder={keywordPlaceholder} />
         </LabelInput>
-        {type !== 'level3' && (
+        {type === 'level5' && (
           <LabelInput label="审批层级">
             <select className="admin-input">
               <option value="">全部层级</option>
-              {APPROVER_LEVELS.map((item) => (
+              {['分中心审批', '总部审批'].map((item) => (
                 <option key={item} value={item}>{item}</option>
               ))}
             </select>
@@ -114,6 +114,7 @@ export const CapacityFilter = ({ type }: CapacityFilterProps) => {
           <RefreshCw className="w-3.5 h-3.5" />
           重置
         </button>
+        {actions}
       </div>
     </div>
   );

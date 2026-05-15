@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, Database, LayoutDashboard } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CapacityView } from '../../types';
 
 export interface BreadcrumbItem {
@@ -69,6 +70,12 @@ interface LayoutProps {
   onChangeView: (view: CapacityView) => void;
 }
 
+export const MainFooterPortal = ({ children }: { children: React.ReactNode }) => {
+  const container = typeof document !== 'undefined' ? document.getElementById('layout-main-footer') : null;
+
+  return container ? createPortal(children, container) : null;
+};
+
 export const Layout = ({ children, breadcrumbs, currentView, onChangeView }: LayoutProps) => {
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['产能管理']);
 
@@ -136,7 +143,10 @@ export const Layout = ({ children, breadcrumbs, currentView, onChangeView }: Lay
           ))}
         </div>
 
-        <main className="flex-1 overflow-auto custom-scrollbar p-5">{children}</main>
+        <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-auto custom-scrollbar p-5">{children}</div>
+          <div id="layout-main-footer" className="flex-shrink-0"></div>
+        </main>
       </div>
     </div>
   );

@@ -12,7 +12,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
-import { CapacityRecord } from '../types';
+import { MainFooterPortal } from '../components/layout/Shell';
+import { CapacityRecord, normalizeApprovalStatus } from '../types';
 
 interface LevelFiveDetailPageProps {
   record: CapacityRecord;
@@ -129,8 +130,9 @@ const QUARTER_MONTHS = ['1月', '2月', '3月'];
 const statusColorMap: Record<string, string> = {
   '回款中': 'bg-orange-100 text-orange-700',
   '已回清待确认': 'bg-cyan-100 text-cyan-700',
+  '待审核': 'bg-sky-100 text-sky-700',
   '待分中心审核': 'bg-sky-100 text-sky-700',
-  '待总部审核': 'bg-violet-100 text-violet-700',
+  '待总部审核': 'bg-sky-100 text-sky-700',
   '已生效': 'bg-emerald-100 text-emerald-700',
   '已驳回': 'bg-rose-100 text-rose-700',
   '已撤回': 'bg-slate-100 text-slate-700',
@@ -141,7 +143,7 @@ const getDefaultRoleView = (status: string): RoleView => {
     return 'finance';
   }
 
-  if (['待分中心审核', '待总部审核', '已生效'].includes(status)) {
+  if (['待审核', '待分中心审核', '待总部审核', '已生效'].includes(status)) {
     return 'approval';
   }
 
@@ -260,7 +262,7 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
         position: '高级',
         members: [
           { name: '刘晨', monthlyDays: [21, 22, 21] },
-          { name: '吴楠', monthlyDays: [20, 21, 22] },
+          { name: '吴桥', monthlyDays: [20, 21, 22] },
           { name: '程浩', monthlyDays: [19, 20, 21] },
         ],
       },
@@ -268,7 +270,7 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
         position: '中级',
         members: [
           { name: '周颖', monthlyDays: [21, 21, 20] },
-          { name: '孙怡', monthlyDays: [20, 21, 21] },
+          { name: '孙恬', monthlyDays: [20, 21, 21] },
         ],
       },
       {
@@ -286,7 +288,7 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
       {
         position: '资深',
         members: [
-          { name: '黄璐', monthlyDays: [22, 21, 22] },
+          { name: '黄璇', monthlyDays: [22, 21, 22] },
           { name: '陈卓', monthlyDays: [21, 21, 20] },
           { name: '梁骁', monthlyDays: [20, 21, 21] },
         ],
@@ -294,8 +296,8 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
       {
         position: '高级',
         members: [
-          { name: '李彤', monthlyDays: [21, 20, 21] },
-          { name: '许铭', monthlyDays: [20, 21, 21] },
+          { name: '李端', monthlyDays: [21, 20, 21] },
+          { name: '许铖', monthlyDays: [20, 21, 21] },
         ],
       },
       {
@@ -312,7 +314,7 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
     {
       position: record.position,
       members: [
-        { name: '黄璐', monthlyDays: [22, 21, 21] },
+        { name: '黄璇', monthlyDays: [22, 21, 21] },
         { name: '陈卓', monthlyDays: [21, 21, 20] },
         { name: '徐青', monthlyDays: [20, 22, 21] },
       ],
@@ -320,8 +322,8 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
     {
       position: '高级',
       members: [
-        { name: '李彤', monthlyDays: [21, 20, 21] },
-        { name: '许铭', monthlyDays: [20, 21, 21] },
+        { name: '李端', monthlyDays: [21, 20, 21] },
+        { name: '许铖', monthlyDays: [20, 21, 21] },
       ],
     },
     {
@@ -556,12 +558,14 @@ const SectionTitle = ({ title, extra }: { title: string; extra?: React.ReactNode
 
 export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: LevelFiveDetailPageProps) => {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [memberKeyword, setMemberKeyword] = useState('');
+  const [monthFilter, setMonthFilter] = useState('');
   const [selectedPosition, setSelectedPosition] = useState('');
   const [selectedMonthlyDetailId, setSelectedMonthlyDetailId] = useState('');
   const [dailyDetailFilter, setDailyDetailFilter] = useState<DailyDetailFilter>('all');
   const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>(() => createExpandedMonthState());
   const [personRows, setPersonRows] = useState<DailyCapacityRow[]>(() => createDailyRows(record));
-  const [currentStatus, setCurrentStatus] = useState(record.status);
+  const [currentStatus, setCurrentStatus] = useState(normalizeApprovalStatus(record.status));
   const [currentReceiptStatus, setCurrentReceiptStatus] = useState(record.receiptStatus || '--');
   const [receiptRecords, setReceiptRecords] = useState<ReceiptRecord[]>(() => createInitialReceipts(record));
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
@@ -582,12 +586,14 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
 
   useEffect(() => {
     setQuickFilter('all');
+    setMemberKeyword('');
+    setMonthFilter('');
     setSelectedPosition('');
     setSelectedMonthlyDetailId('');
     setDailyDetailFilter('all');
     setExpandedMonths(createExpandedMonthState());
     setPersonRows(initialPersonRows);
-    setCurrentStatus(record.status);
+    setCurrentStatus(normalizeApprovalStatus(record.status));
     setCurrentReceiptStatus(record.receiptStatus || '--');
     setReceiptRecords(createInitialReceipts(record));
     setReceiptModalOpen(false);
@@ -602,7 +608,6 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
   }, [initialPersonRows, record]);
 
   const sourceLevelFourId = getSourceLevelFourId(record);
-  const isCrossCenter = record.approverLevel === '总部审批';
   const currentRole = getDefaultRoleView(currentStatus);
   const isFinanceView = currentRole === 'finance';
   const isSalesView = currentRole === 'sales';
@@ -610,8 +615,8 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
   const canRegisterReceipt = currentStatus === '回款中';
   const canEdit = ['回款中', '已回清待确认', '已驳回'].includes(currentStatus);
   const canSubmit = ['已回清待确认', '已驳回'].includes(currentStatus) && currentReceiptStatus === '已回清';
-  const canReview = currentStatus === '待分中心审核' || currentStatus === '待总部审核';
-  const canWithdraw = ['已回清待确认', '待分中心审核', '待总部审核'].includes(currentStatus);
+  const canReview = currentStatus === '待审核';
+  const canWithdraw = ['已回清待确认', '待审核'].includes(currentStatus);
   const showFinanceAction = isFinanceView && canRegisterReceipt;
   const showSalesEdit = isSalesView && canEdit;
   const showSalesSubmit = isSalesView && canSubmit;
@@ -674,9 +679,13 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
           return false;
         }
 
-        return matchesQuickFilter(item, quickFilter);
+        const matchedQuickFilter = matchesQuickFilter(item, quickFilter);
+        const matchedMember = !memberKeyword.trim() || item.member.includes(memberKeyword.trim());
+        const matchedMonth = !monthFilter || item.month === monthFilter;
+
+        return matchedQuickFilter && matchedMember && matchedMonth;
       }),
-    [monthlyRows, quickFilter, selectedPosition],
+    [memberKeyword, monthFilter, monthlyRows, quickFilter, selectedPosition],
   );
 
   useEffect(() => {
@@ -1011,26 +1020,25 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
     closeReceiptModal();
   };
 
+  const handleCompleteReceipt = () => {
+    if (!receiptMatchesAmount) {
+      return;
+    }
+
+    setCurrentReceiptStatus('已回清');
+    setCurrentStatus('已回清待确认');
+  };
+
   const handleSubmitConfirm = () => {
     if (currentReceiptStatus !== '已回清') {
       return;
     }
 
-    setCurrentStatus('待分中心审核');
+    setCurrentStatus('待审核');
   };
 
   const handleApprove = () => {
-    if (currentStatus === '待分中心审核') {
-      if (isCrossCenter) {
-        setCurrentStatus('待总部审核');
-        return;
-      }
-
-      setCurrentStatus('已生效');
-      return;
-    }
-
-    if (currentStatus === '待总部审核') {
+    if (currentStatus === '待审核') {
       setCurrentStatus('已生效');
     }
   };
@@ -1049,7 +1057,7 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
   })();
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-4">
       <div className="admin-card px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-3">
@@ -1063,68 +1071,12 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
             </button>
             <div>
               <div className="text-lg font-semibold text-on-surface">五级产能详情</div>
-              <div className="mt-1 text-sm text-on-surface-variant">围绕发票回款台账、人员明细调整和最终确认流转进行处理。</div>
             </div>
             <div className="flex items-center gap-3 text-sm flex-wrap">
               <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${statusColorMap[currentStatus] || 'bg-cyan-100 text-primary'}`}>
                 {currentStatus}
               </span>
-              <span className="text-on-surface-variant">是否跨中心：{isCrossCenter ? '是' : '否'}</span>
-              <span className="text-on-surface-variant">当前审批层级：{currentStatus === '待总部审核' ? '总部审批' : currentStatus === '待分中心审核' ? '分中心审批' : record.approverLevel || '分中心审批'}</span>
-              <span className="text-on-surface-variant">回款状态：{currentReceiptStatus}</span>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {showFinanceAction && (
-              <button
-                type="button"
-                onClick={() => setReceiptModalOpen(true)}
-                className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
-              >
-                <Save className="w-3.5 h-3.5" />
-                新增回款登记
-              </button>
-            )}
-            {showSalesSubmit && (
-              <button
-                type="button"
-                onClick={handleSubmitConfirm}
-                className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
-              >
-                <Send className="w-3.5 h-3.5" />
-                提交五级确认
-              </button>
-            )}
-            {showSalesWithdraw && (
-              <button
-                type="button"
-                onClick={handleWithdraw}
-                className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                撤回
-              </button>
-            )}
-            {showApprovalAction && (
-              <button
-                type="button"
-                onClick={handleApprove}
-                className="flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                审批通过
-              </button>
-            )}
-            {showApprovalAction && (
-              <button
-                type="button"
-                onClick={handleReject}
-                className="flex items-center gap-1.5 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-700 hover:bg-amber-100 transition-colors"
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                驳回
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -1220,7 +1172,7 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
         </div>
       </div>
 
-      <div className="admin-card overflow-hidden">
+      <div className="admin-card overflow-hidden bg-white">
         <SectionTitle
           title="回款记录"
           extra={
@@ -1277,163 +1229,6 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
       </div>
 
       <div className="admin-card overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-outline-variant px-5 py-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="min-w-[300px] rounded border border-outline-variant bg-surface-container-low px-3 py-2 text-xs text-on-surface">
-              {sourceBatchName}
-            </div>
-            <QuickFilterTabs value={quickFilter} onChange={setQuickFilter} />
-          </div>
-          <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            五级基于已归档四级发票和累计回款进行最终确认。
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[0.95fr_1.45fr]">
-          <div className="rounded-2xl border border-outline-variant bg-white">
-            <SectionTitle
-              title="合同岗位汇总"
-              extra={
-                showSalesEdit && selectedPositionHasModifiedRows ? (
-                  <button
-                    type="button"
-                    onClick={revertSelectedPositionRows}
-                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline transition-colors"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    还原当前岗位
-                  </button>
-                ) : undefined
-              }
-            />
-            <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full min-w-[520px] text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
-                    <th className="px-3 py-3">合同岗位</th>
-                    <th className="px-3 py-3">单价</th>
-                    <th className="px-3 py-3">四级产能</th>
-                    <th className="px-3 py-3">五级产能</th>
-                    <th className="px-3 py-3">五级金额</th>
-                    <th className="px-3 py-3">状态</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-outline-variant text-sm">
-                  {filteredPositionRows.map((item) => (
-                    <tr
-                      key={item.id}
-                      className={`cursor-pointer transition-colors ${selectedPosition === item.position ? 'bg-cyan-50' : 'hover:bg-surface-container-low'}`}
-                      onClick={() => setSelectedPosition(item.position)}
-                    >
-                      <td className="px-3 py-3 font-medium text-on-surface">{item.position}</td>
-                      <td className="px-3 py-3 text-on-surface-variant">{formatCurrency(item.unitPrice)}</td>
-                      <td className="px-3 py-3 text-on-surface">{formatNumber(item.level4Days)}</td>
-                      <td className="px-3 py-3 text-on-surface">{formatNumber(item.level5Days)}</td>
-                      <td className="px-3 py-3 text-on-surface font-medium">{formatCurrency(item.level5Amount)}</td>
-                      <td className="px-3 py-3"><RowTags hasDiff={item.hasDiff} modified={item.modified} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-outline-variant bg-surface-container-low text-sm font-medium text-on-surface">
-                    <td className="px-3 py-3">总计</td>
-                    <td className="px-3 py-3">--</td>
-                    <td className="px-3 py-3">{formatNumber(totalPositionSummary.level4Days)}</td>
-                    <td className="px-3 py-3">{formatNumber(totalPositionSummary.level5Days)}</td>
-                    <td className="px-3 py-3">{formatCurrency(totalPositionSummary.adjustedLevel5Amount)}</td>
-                    <td className="px-3 py-3">
-                      {showSalesEdit && (
-                        <button
-                          type="button"
-                          onClick={openTotalAdjustmentModal}
-                          className="text-xs text-primary hover:underline transition-colors"
-                        >
-                          调整总金额
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            {!!totalAdjustmentReason && (
-              <div className="border-t border-outline-variant px-5 py-3 text-xs text-on-surface-variant">
-                总金额调整：{formatCurrency(Number(totalAdjustmentAmount) || 0)}，原因：{totalAdjustmentReason}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-outline-variant bg-white">
-            <SectionTitle title="人员产能明细" />
-            <div className="space-y-4 px-5 py-5">
-              {monthGroups.map((group) => (
-                <div key={group.month} className="rounded-2xl border border-outline-variant bg-surface-container-low/50">
-                  <button
-                    type="button"
-                    onClick={() => toggleMonth(group.month)}
-                    className="flex w-full items-center justify-between px-4 py-3 text-left"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-on-surface">{group.month}</div>
-                      <div className="mt-1 text-xs text-on-surface-variant">
-                        四级 {formatNumber(group.totalLevel4Days)} 人天 / 五级 {formatNumber(group.totalLevel5Days)} 人天 / {formatCurrency(group.totalLevel5Amount)}
-                      </div>
-                    </div>
-                    {expandedMonths[group.month] ? <ChevronUp className="w-4 h-4 text-on-surface-variant" /> : <ChevronDown className="w-4 h-4 text-on-surface-variant" />}
-                  </button>
-                  {expandedMonths[group.month] && (
-                    <div className="overflow-x-auto border-t border-outline-variant bg-white custom-scrollbar">
-                      <table className="w-full min-w-[720px] text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-outline-variant text-xs font-semibold text-on-surface-variant">
-                            <th className="px-3 py-3">人员</th>
-                            <th className="px-3 py-3">四级产能</th>
-                            <th className="px-3 py-3">五级产能</th>
-                            <th className="px-3 py-3">五级金额</th>
-                            <th className="px-3 py-3">标签</th>
-                            <th className="px-3 py-3 text-right">操作</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-outline-variant text-sm">
-                          {group.rows.map((item) => (
-                            <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
-                              <td className="px-3 py-3 font-medium text-on-surface">{item.member}</td>
-                              <td className="px-3 py-3 text-on-surface">{formatNumber(item.level4Days)}</td>
-                              <td className="px-3 py-3 text-on-surface">{formatNumber(item.level5Days)}</td>
-                              <td className="px-3 py-3 text-on-surface font-medium">{formatCurrency(item.level5Amount)}</td>
-                              <td className="px-3 py-3"><RowTags hasDiff={item.hasDiff} modified={item.modified} /></td>
-                              <td className="px-3 py-3 text-right whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedMonthlyDetailId(item.id)}
-                                  className="text-primary hover:underline transition-colors"
-                                >
-                                  详情
-                                </button>
-                                {item.modified && showSalesEdit && (
-                                  <button
-                                    type="button"
-                                    onClick={() => revertMonthlyRow(item.id)}
-                                    className="ml-3 text-xs text-primary hover:underline transition-colors"
-                                  >
-                                    还原
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="admin-card overflow-hidden">
         <SectionTitle
           title="审批轨迹"
           extra={
@@ -1464,25 +1259,93 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
         )}
       </div>
 
+      <MainFooterPortal>
+        <div className="flex-shrink-0 flex items-center justify-center gap-1.5 border-t border-outline-variant bg-white px-5 py-3 text-sm">
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            {showFinanceAction && (
+              <button
+                type="button"
+                onClick={() => setReceiptModalOpen(true)}
+                className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+              >
+                <Save className="w-3.5 h-3.5" />
+                新增回款登记
+              </button>
+            )}
+            {showFinanceAction && (
+              <button
+                type="button"
+                onClick={handleCompleteReceipt}
+                disabled={!receiptMatchesAmount}
+                className="flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                回款完结
+              </button>
+            )}
+            {showSalesSubmit && (
+              <button
+                type="button"
+                onClick={handleSubmitConfirm}
+                className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" />
+                提交五级确认
+              </button>
+            )}
+            {showSalesWithdraw && (
+              <button
+                type="button"
+                onClick={handleWithdraw}
+                className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                撤回
+              </button>
+            )}
+            {showApprovalAction && (
+              <button
+                type="button"
+                onClick={handleApprove}
+                className="flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                通过
+              </button>
+            )}
+            {showApprovalAction && (
+              <button
+                type="button"
+                onClick={handleReject}
+                className="flex items-center gap-1.5 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-700 hover:bg-amber-100 transition-colors"
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                驳回
+              </button>
+            )}
+          </div>
+        </div>
+      </MainFooterPortal>
+
       {selectedMonthlyRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6" onClick={() => setSelectedMonthlyDetailId('')}>
           <div
             className="flex w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-outline-variant px-5 py-4">
               <div>
                 <div className="text-base font-semibold text-on-surface">{selectedMonthlyRow.member} {selectedMonthlyRow.month} 日维度明细</div>
                 <div className="mt-1 text-xs text-on-surface-variant">
                   {showSalesEdit
                     ? '按天查看四级和五级人天差异，可继续调整并记录原因。'
-                    : '按天查看四级和五级人天差异，当前视角仅支持查看。'}
+                    : '按天查看四级和五级人天差异与调整记录。'}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedMonthlyDetailId('')}
-                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+                className="inline-flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
               >
                 <XCircle className="w-3.5 h-3.5" />
                 关闭

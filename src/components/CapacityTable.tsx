@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { CapacityRecord, CapacityView } from '../types';
+import React, { useEffect, useState } from 'react';
+import { CapacityRecord, CapacityView, normalizeApprovalStatus } from '../types';
 
 interface CapacityTableProps {
   data: CapacityRecord[];
@@ -12,12 +12,11 @@ interface LocalCapacityRecord extends CapacityRecord {
 }
 
 const statusColorMap: Record<string, string> = {
+  '待确认': 'bg-amber-100 text-amber-700',
   '待调整': 'bg-amber-100 text-amber-700',
   '待审核': 'bg-sky-100 text-sky-700',
   '已通过': 'bg-emerald-100 text-emerald-700',
   '待提交': 'bg-amber-100 text-amber-700',
-  '待分中心审核': 'bg-sky-100 text-sky-700',
-  '待总部审核': 'bg-violet-100 text-violet-700',
   '待上传发票': 'bg-cyan-100 text-cyan-700',
   '已归档': 'bg-emerald-100 text-emerald-700',
   '已驳回': 'bg-rose-100 text-rose-700',
@@ -35,9 +34,20 @@ export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps)
   const [rows, setRows] = useState<LocalCapacityRecord[]>(() =>
     data.map((item) => ({
       ...item,
-      originalStatus: item.status,
+      status: normalizeApprovalStatus(item.status),
+      originalStatus: normalizeApprovalStatus(item.status),
     })),
   );
+
+  useEffect(() => {
+    setRows(
+      data.map((item) => ({
+        ...item,
+        status: normalizeApprovalStatus(item.status),
+        originalStatus: normalizeApprovalStatus(item.status),
+      })),
+    );
+  }, [data]);
 
   const updateTime = () => {
     const now = new Date();
@@ -52,7 +62,7 @@ export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps)
         item.id === id
           ? {
               ...item,
-              status: '已撤销',
+              status: view === 'level4' ? '待提交' : '已撤销',
               updatedAt: updateTime(),
             }
           : item,
@@ -87,7 +97,7 @@ export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps)
               <th className="px-4 py-3">运营中心</th>
               <th className="px-4 py-3">产能人天</th>
               <th className="px-4 py-3">金额</th>
-              {view !== 'level3' && <th className="px-4 py-3">审批层级</th>}
+              {view === 'level5' && <th className="px-4 py-3">审批层级</th>}
               {view === 'level4' && <th className="px-4 py-3">发票状态</th>}
               {view === 'level5' && <th className="px-4 py-3">回款状态</th>}
               <th className="px-4 py-3">当前状态</th>
@@ -106,7 +116,7 @@ export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps)
                 <td className="px-4 py-4 text-on-surface-variant">{item.operationCenter}</td>
                 <td className="px-4 py-4 text-on-surface font-medium">{item.workDays}</td>
                 <td className="px-4 py-4 text-on-surface font-medium">¥{item.amount.toLocaleString()}</td>
-                {view !== 'level3' && <td className="px-4 py-4 text-on-surface-variant">{item.approverLevel || '--'}</td>}
+                {view === 'level5' && <td className="px-4 py-4 text-on-surface-variant">{item.approverLevel || '--'}</td>}
                 {view === 'level4' && <td className="px-4 py-4 text-on-surface-variant">{item.invoiceStatus || '--'}</td>}
                 {view === 'level5' && <td className="px-4 py-4 text-on-surface-variant">{item.receiptStatus || '--'}</td>}
                 <td className="px-4 py-4">
