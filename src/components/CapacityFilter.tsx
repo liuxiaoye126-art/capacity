@@ -21,6 +21,8 @@ interface CapacityFilterProps {
 }
 
 export const CapacityFilter = ({ type, actions }: CapacityFilterProps) => {
+  const showPeriodFilter = type === 'level3';
+
   const statusOptions = {
     level3: ['全部状态', '待确认', '待审核', '已通过'],
     level4: ['全部状态', '待提交', '待审核', '待上传发票', '已归档'],
@@ -36,9 +38,11 @@ export const CapacityFilter = ({ type, actions }: CapacityFilterProps) => {
   return (
     <div className="admin-card mb-4 px-5 py-4">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4 mb-4">
-        <LabelInput label="所属周期">
-          <input type="month" className="admin-input" defaultValue="2026-05" />
-        </LabelInput>
+        {showPeriodFilter && (
+          <LabelInput label="所属周期">
+            <input type="month" className="admin-input" defaultValue="2026-05" />
+          </LabelInput>
+        )}
         <LabelInput label="客户">
           <select className="admin-input">
             <option value="">全部客户</option>

@@ -13,15 +13,20 @@ interface SubItemProps {
   label: string;
   isActive?: boolean;
   onClick?: () => void;
+  disabled?: boolean;
 }
 
-const SubItem = ({ label, isActive, onClick }: SubItemProps) => (
+const SubItem = ({ label, isActive, onClick, disabled }: SubItemProps) => (
   <button
+    type="button"
     onClick={onClick}
+    disabled={disabled}
     className={`relative w-full text-left py-2.5 pl-9 pr-4 text-sm transition-colors
-      ${isActive
-        ? 'text-primary font-medium bg-primary/5 border-l-[3px] border-primary'
-        : 'text-on-surface-variant border-l-[3px] border-transparent hover:bg-surface-container-low hover:text-primary'
+      ${disabled
+        ? 'cursor-not-allowed text-on-surface-variant/50 border-l-[3px] border-transparent'
+        : isActive
+          ? 'text-primary font-medium bg-primary/5 border-l-[3px] border-primary'
+          : 'text-on-surface-variant border-l-[3px] border-transparent hover:bg-surface-container-low hover:text-primary'
       }`}
   >
     {label}
@@ -99,9 +104,11 @@ export const Layout = ({ children, breadcrumbs, currentView, onChangeView }: Lay
             isOpen={expandedMenus.includes('产能管理')}
             onClick={() => toggleMenu('产能管理')}
           >
-            <SubItem label="三级产能" isActive={currentView === 'level3'} onClick={() => onChangeView('level3')} />
-            <SubItem label="四级产能" isActive={currentView === 'level4'} onClick={() => onChangeView('level4')} />
-            <SubItem label="五级产能" isActive={currentView === 'level5'} onClick={() => onChangeView('level5')} />
+            <SubItem label="一级产能管理" isActive={currentView === 'level1'} onClick={() => onChangeView('level1')} />
+            <SubItem label="二级产能管理" disabled />
+            <SubItem label="三级产能管理" isActive={currentView === 'level3'} onClick={() => onChangeView('level3')} />
+            <SubItem label="四级产能管理" isActive={currentView === 'level4'} onClick={() => onChangeView('level4')} />
+            <SubItem label="五级产能管理" isActive={currentView === 'level5'} onClick={() => onChangeView('level5')} />
           </SidebarItem>
         </nav>
       </aside>

@@ -1049,8 +1049,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           <div><div className="text-xs text-on-surface-variant mb-1">合同</div><div className="text-sm font-medium text-on-surface">{summary.contract}</div></div>
           <div><div className="text-xs text-on-surface-variant mb-1">期间</div><div className="text-sm font-medium text-on-surface">{summary.period}</div></div>
           <div><div className="text-xs text-on-surface-variant mb-1">所属中心</div><div className="text-sm font-medium text-on-surface">{summary.center}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">识别产能人天</div><div className="text-sm font-medium text-on-surface">{formatNumber(summary.workDays)}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">识别金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(summary.amount)}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">客户确认产能/人天</div><div className="text-sm font-medium text-on-surface">{formatNumber(summary.workDays)}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">客户确认金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(summary.amount)}</div></div>
         </div>
         <div className="border-t border-outline-variant bg-surface-container-low px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="text-xs text-on-surface-variant flex items-center gap-2">

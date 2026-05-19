@@ -5,6 +5,7 @@ interface CapacityTableProps {
   data: CapacityRecord[];
   view: CapacityView;
   onDetailClick?: (id: string) => void;
+  onRelatedLevelFourClick?: (id: string) => void;
 }
 
 interface LocalCapacityRecord extends CapacityRecord {
@@ -30,7 +31,7 @@ const isProcessingStatus = (status: string) => {
   return !['已通过', '已归档', '已生效', '已撤销'].includes(status);
 };
 
-export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps) => {
+export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourClick }: CapacityTableProps) => {
   const [rows, setRows] = useState<LocalCapacityRecord[]>(() =>
     data.map((item) => ({
       ...item,
@@ -84,6 +85,8 @@ export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps)
     );
   };
 
+  const showPeriodColumn = view === 'level3';
+
   return (
     <div className="admin-card overflow-hidden">
       <div className="overflow-x-auto custom-scrollbar">
@@ -91,12 +94,13 @@ export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps)
           <thead>
             <tr className="border-b border-outline-variant text-sm font-semibold text-on-surface bg-surface-container-low">
               <th className="px-4 py-3">单据编号</th>
-              <th className="px-4 py-3">所属周期</th>
+              {showPeriodColumn && <th className="px-4 py-3">所属周期</th>}
               <th className="px-4 py-3">客户</th>
               <th className="px-4 py-3">合同</th>
               <th className="px-4 py-3">运营中心</th>
               <th className="px-4 py-3">产能人天</th>
               <th className="px-4 py-3">金额</th>
+              {view === 'level5' && <th className="px-4 py-3">关联四级批次</th>}
               {view === 'level5' && <th className="px-4 py-3">审批层级</th>}
               {view === 'level4' && <th className="px-4 py-3">发票状态</th>}
               {view === 'level5' && <th className="px-4 py-3">回款状态</th>}
@@ -110,12 +114,27 @@ export const CapacityTable = ({ data, view, onDetailClick }: CapacityTableProps)
             {rows.map((item) => (
               <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
                 <td className="px-4 py-4 font-semibold text-on-surface">{item.id}</td>
-                <td className="px-4 py-4 text-on-surface-variant whitespace-nowrap">{item.period}</td>
+                {showPeriodColumn && <td className="px-4 py-4 text-on-surface-variant whitespace-nowrap">{item.period}</td>}
                 <td className="px-4 py-4 text-on-surface-variant">{item.customer}</td>
                 <td className="px-4 py-4 text-on-surface-variant">{item.contract}</td>
                 <td className="px-4 py-4 text-on-surface-variant">{item.operationCenter}</td>
                 <td className="px-4 py-4 text-on-surface font-medium">{item.workDays}</td>
                 <td className="px-4 py-4 text-on-surface font-medium">¥{item.amount.toLocaleString()}</td>
+                {view === 'level5' && (
+                  <td className="px-4 py-4">
+                    {item.relatedLevelFourId ? (
+                      <button
+                        type="button"
+                        onClick={() => onRelatedLevelFourClick?.(item.relatedLevelFourId!)}
+                        className="text-primary hover:underline transition-colors"
+                      >
+                        {item.relatedLevelFourId}
+                      </button>
+                    ) : (
+                      <span className="text-on-surface-variant">--</span>
+                    )}
+                  </td>
+                )}
                 {view === 'level5' && <td className="px-4 py-4 text-on-surface-variant">{item.approverLevel || '--'}</td>}
                 {view === 'level4' && <td className="px-4 py-4 text-on-surface-variant">{item.invoiceStatus || '--'}</td>}
                 {view === 'level5' && <td className="px-4 py-4 text-on-surface-variant">{item.receiptStatus || '--'}</td>}

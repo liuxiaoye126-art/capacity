@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { BreadcrumbItem, Layout } from './components/layout/Shell';
+import { LevelOneListPage } from './pages/LevelOneListPage';
 import { LevelFourDetailPage } from './pages/LevelFourDetailPage';
 import { LevelThreeDetailPage } from './pages/LevelThreeDetailPage';
 import { LevelThreeListPage } from './pages/LevelThreeListPage';
 import { LevelFourListPage } from './pages/LevelFourListPage';
 import { LevelFiveDetailPage } from './pages/LevelFiveDetailPage';
 import { LevelFiveListPage } from './pages/LevelFiveListPage';
-import { CapacityView, LEVEL3_DATA, LEVEL4_DATA, LEVEL5_DATA } from './types';
+import { CapacityView, LEVEL1_DATA, LEVEL3_DATA, LEVEL4_DATA, LEVEL5_DATA } from './types';
 
 export default function App() {
   const [view, setView] = useState<CapacityView>('level3');
@@ -26,6 +27,10 @@ export default function App() {
     if (nextView !== 'level5') {
       setSelectedLevelFiveId(null);
     }
+  };
+
+  const goToLevelOneList = () => {
+    setView('level1');
   };
 
   const goToLevelThreeList = () => {
@@ -62,13 +67,19 @@ export default function App() {
   const breadcrumbs: BreadcrumbItem[] = [
     {
       label: '产能管理',
-      onClick: goToLevelThreeList,
+      onClick: goToLevelOneList,
     },
   ];
 
+  if (view === 'level1') {
+    breadcrumbs.push({
+      label: '一级产能管理',
+    });
+  }
+
   if (view === 'level3') {
     breadcrumbs.push({
-      label: '三级产能',
+      label: '三级产能管理',
       onClick: selectedLevelThreeId ? goToLevelThreeList : undefined,
     });
 
@@ -79,7 +90,7 @@ export default function App() {
 
   if (view === 'level4') {
     breadcrumbs.push({
-      label: '四级产能',
+      label: '四级产能管理',
       onClick: selectedLevelFourId ? goToLevelFourList : undefined,
     });
 
@@ -90,7 +101,7 @@ export default function App() {
 
   if (view === 'level5') {
     breadcrumbs.push({
-      label: '五级产能',
+      label: '五级产能管理',
       onClick: selectedLevelFiveId ? goToLevelFiveList : undefined,
     });
 
@@ -101,6 +112,7 @@ export default function App() {
 
   return (
     <Layout breadcrumbs={breadcrumbs} currentView={view} onChangeView={handleChangeView}>
+      {view === 'level1' && <LevelOneListPage data={LEVEL1_DATA} />}
       {view === 'level3' && !selectedLevelThreeId && <LevelThreeListPage onDetailClick={setSelectedLevelThreeId} />}
       {view === 'level3' && selectedLevelThreeRecord && (
         <LevelThreeDetailPage record={selectedLevelThreeRecord} onBack={() => setSelectedLevelThreeId(null)} />
@@ -122,7 +134,12 @@ export default function App() {
           onOpenLevelThreeSource={openSourceLevelThree}
         />
       )}
-      {view === 'level5' && !selectedLevelFiveId && <LevelFiveListPage onDetailClick={setSelectedLevelFiveId} />}
+      {view === 'level5' && !selectedLevelFiveId && (
+        <LevelFiveListPage
+          onDetailClick={setSelectedLevelFiveId}
+          onRelatedLevelFourClick={openSourceLevelFour}
+        />
+      )}
       {view === 'level5' && selectedLevelFiveRecord && (
         <LevelFiveDetailPage
           record={selectedLevelFiveRecord}
