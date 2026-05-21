@@ -19,16 +19,17 @@ const statusColorMap: Record<string, string> = {
   '已通过': 'bg-emerald-100 text-emerald-700',
   '待提交': 'bg-amber-100 text-amber-700',
   '待上传发票': 'bg-cyan-100 text-cyan-700',
+  '待归档': 'bg-violet-100 text-violet-700',
   '已归档': 'bg-emerald-100 text-emerald-700',
   '已驳回': 'bg-rose-100 text-rose-700',
   '回款中': 'bg-orange-100 text-orange-700',
-  '已回清待确认': 'bg-cyan-100 text-cyan-700',
+  '已回清': 'bg-emerald-100 text-emerald-700',
   '已生效': 'bg-emerald-100 text-emerald-700',
   '已撤销': 'bg-rose-100 text-rose-700',
 };
 
 const isProcessingStatus = (status: string) => {
-  return !['已通过', '已归档', '已生效', '已撤销'].includes(status);
+  return !['已通过', '已归档', '已回清', '已生效', '已撤销'].includes(status);
 };
 
 export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourClick }: CapacityTableProps) => {
@@ -101,7 +102,6 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
               <th className="px-4 py-3">产能人天</th>
               <th className="px-4 py-3">金额</th>
               {view === 'level5' && <th className="px-4 py-3">关联四级批次</th>}
-              {view === 'level5' && <th className="px-4 py-3">审批层级</th>}
               {view === 'level4' && <th className="px-4 py-3">发票状态</th>}
               {view === 'level5' && <th className="px-4 py-3">回款状态</th>}
               <th className="px-4 py-3">当前状态</th>
@@ -135,7 +135,6 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                     )}
                   </td>
                 )}
-                {view === 'level5' && <td className="px-4 py-4 text-on-surface-variant">{item.approverLevel || '--'}</td>}
                 {view === 'level4' && <td className="px-4 py-4 text-on-surface-variant">{item.invoiceStatus || '--'}</td>}
                 {view === 'level5' && <td className="px-4 py-4 text-on-surface-variant">{item.receiptStatus || '--'}</td>}
                 <td className="px-4 py-4">
@@ -152,7 +151,7 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                   >
                     详情
                   </button>
-                  {isProcessingStatus(item.status) && (
+                  {view !== 'level5' && isProcessingStatus(item.status) && (
                     <button
                       onClick={() => handleRevoke(item.id)}
                       className="text-amber-600 hover:underline text-sm mr-3 transition-colors"
@@ -160,7 +159,7 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                       撤销
                     </button>
                   )}
-                  {item.status === '已撤销' && (
+                  {view !== 'level5' && item.status === '已撤销' && (
                     <button
                       onClick={() => handleRestart(item.id)}
                       className="text-primary hover:underline text-sm mr-3 transition-colors"

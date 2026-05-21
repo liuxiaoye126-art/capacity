@@ -115,12 +115,24 @@ interface AdjustmentRecord {
   id: string;
   summaryId: string;
   type: AdjustmentType;
+  adjustmentValue?: number;
   beforeValue: number;
   afterValue: number;
   reason: string;
   operator: string;
   time: string;
 }
+
+interface LevelThreeInitialState {
+  personRows: DailyCapacityRow[];
+  dailyAdjustmentReasons: Record<string, string>;
+  adjustmentHistoryMap: Record<string, AdjustmentRecord[]>;
+}
+
+const granularityLabelMap: Record<AcceptanceGranularity, string> = {
+  monthly: '月产能',
+  daily: '日产能',
+};
 
 const QUARTER_MONTHS = ['1月', '2月', '3月'];
 
@@ -362,6 +374,10 @@ const formatCurrency = (value: number) => {
   })}`;
 };
 
+const formatSignedNumber = (value: number) => `${value > 0 ? '+' : value < 0 ? '-' : ''}${formatNumber(Math.abs(value))}`;
+
+const formatSignedCurrency = (value: number) => `${value > 0 ? '+' : value < 0 ? '-' : ''}${formatCurrency(Math.abs(value))}`;
+
 const formatRecognitionBatchName = (workDays: number, amount: number, identifiedAt: string) =>
   `${formatNumber(workDays)}人天 ${formatCurrency(amount).replace('¥', '￥')} ${identifiedAt}`;
 
@@ -374,6 +390,9 @@ const createRecognitionLevel3Value = (date: string, baseDays: number, member: st
 
   return roundValue(Math.max(0, baseDays + offset));
 };
+
+const createRecognitionReason = (deltaValue: number) =>
+  deltaValue > 0 ? '确认单识别：客户补录产能，系统已自动回填。' : '确认单识别：客户扣减产能，系统已自动回填。';
 
 const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
   if (record.customer === '上海银行') {
@@ -481,6 +500,7 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
 
         return workdayDates.map((date, dayIndex) => {
           const level3Days = dailyCapacities[dayIndex] ?? 0;
+          const recognitionLevel3Days = createRecognitionLevel3Value(date, level3Days, member.name);
 
           return {
             id: `${summaryId}-${dayIndex + 1}`,
@@ -496,13 +516,77 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
             systemUnitPrice,
             recognitionUnitPrice,
             amount: roundValue(level3Days * systemUnitPrice),
-            recognitionAmount: roundValue(level3Days * recognitionUnitPrice),
+            recognitionAmount: roundValue(recognitionLevel3Days * recognitionUnitPrice),
             modified: false,
           };
         });
       }),
     ),
   );
+};
+
+const createInitialLevelThreeState = (record: CapacityRecord): LevelThreeInitialState => {
+  const baseRows = createDailyRows(record);
+  const dailyAdjustmentReasons: Record<string, string> = {};
+  const summaryTotals = new Map<string, { beforeValue: number; afterValue: number }>();
+
+  const personRows = baseRows.map((row) => {
+    const recognizedLevel3Days = createRecognitionLevel3Value(row.date, row.level2Days, row.member);
+    const deltaValue = roundValue(recognizedLevel3Days - row.level3Days);
+
+    if (Math.abs(deltaValue) <= 0.01) {
+      summaryTotals.set(row.summaryId, {
+        beforeValue: roundValue((summaryTotals.get(row.summaryId)?.beforeValue || 0) + row.level3Days),
+        afterValue: roundValue((summaryTotals.get(row.summaryId)?.afterValue || 0) + row.level3Days),
+      });
+
+      return row;
+    }
+
+    dailyAdjustmentReasons[row.id] = createRecognitionReason(deltaValue);
+    summaryTotals.set(row.summaryId, {
+      beforeValue: roundValue((summaryTotals.get(row.summaryId)?.beforeValue || 0) + row.level3Days),
+      afterValue: roundValue((summaryTotals.get(row.summaryId)?.afterValue || 0) + recognizedLevel3Days),
+    });
+
+    return {
+      ...row,
+      level3Days: recognizedLevel3Days,
+      amount: roundValue(recognizedLevel3Days * row.systemUnitPrice),
+      modified: true,
+    };
+  });
+
+  const monthlyRows = buildMonthlyRows(personRows, {});
+  const adjustmentHistoryMap: Record<string, AdjustmentRecord[]> = {};
+
+  monthlyRows.forEach((row) => {
+    const total = summaryTotals.get(row.id);
+
+    if (!total || Math.abs(total.afterValue - total.beforeValue) <= 0.01) {
+      return;
+    }
+
+    adjustmentHistoryMap[row.id] = [
+      {
+        id: `${row.id}-recognized-capacity`,
+        summaryId: row.id,
+        type: 'capacity',
+        adjustmentValue: roundValue(total.afterValue - total.beforeValue),
+        beforeValue: total.beforeValue,
+        afterValue: total.afterValue,
+        reason: '确认单识别回填：系统已根据确认单自动带出人员增减量，可继续手工维护。',
+        operator: '系统识别引擎',
+        time: '确认单识别回填',
+      },
+    ];
+  });
+
+  return {
+    personRows,
+    dailyAdjustmentReasons,
+    adjustmentHistoryMap,
+  };
 };
 
 const buildMonthlyRows = (rows: DailyCapacityRow[], amountOverrides: Record<string, number>): PersonMonthlyRow[] => {
@@ -618,7 +702,7 @@ const SectionTitle = ({ title, extra }: { title: string; extra?: React.ReactNode
 export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPageProps) => {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [dailyDetailFilter, setDailyDetailFilter] = useState<DailyDetailFilter>('all');
-  const [dailyAdjustmentReasons, setDailyAdjustmentReasons] = useState<Record<string, string>>({});
+  const [dailyLevel3DraftValues, setDailyLevel3DraftValues] = useState<Record<string, string>>({});
   const [memberKeyword, setMemberKeyword] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
@@ -626,17 +710,26 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [recognitionLogsOpen, setRecognitionLogsOpen] = useState(false);
   const [amountOverrides, setAmountOverrides] = useState<Record<string, number>>({});
-  const [adjustmentHistoryMap, setAdjustmentHistoryMap] = useState<Record<string, AdjustmentRecord[]>>({});
   const [adjustmentModal, setAdjustmentModal] = useState<{ summaryId: string; type: AdjustmentType } | null>(null);
   const [draftAdjustmentValue, setDraftAdjustmentValue] = useState('');
   const [draftAdjustmentReason, setDraftAdjustmentReason] = useState('');
+  const [totalAmountAdjustment, setTotalAmountAdjustment] = useState(0);
+  const [totalAmountAdjustmentModalOpen, setTotalAmountAdjustmentModalOpen] = useState(false);
+  const [draftTotalAdjustmentValue, setDraftTotalAdjustmentValue] = useState('');
+  const [draftTotalAdjustmentReason, setDraftTotalAdjustmentReason] = useState('');
+  const [totalAmountAdjustmentHistory, setTotalAmountAdjustmentHistory] = useState<AdjustmentRecord[]>([]);
   const recognitionResults = useMemo(() => createRecognitionResults(record), [record]);
-  const initialPersonRows = useMemo(() => createDailyRows(record), [record]);
+  const initialState = useMemo(() => createInitialLevelThreeState(record), [record]);
+  const initialPersonRows = useMemo(() => initialState.personRows, [initialState]);
+  const initialDailyAdjustmentReasons = useMemo(() => initialState.dailyAdjustmentReasons, [initialState]);
+  const initialAdjustmentHistoryMap = useMemo(() => initialState.adjustmentHistoryMap, [initialState]);
   const initialPersonRowMap = useMemo(
     () => new Map(initialPersonRows.map((item) => [item.id, item])),
     [initialPersonRows],
   );
-  const [personRows, setPersonRows] = useState<DailyCapacityRow[]>(() => createDailyRows(record));
+  const [personRows, setPersonRows] = useState<DailyCapacityRow[]>(() => initialState.personRows);
+  const [dailyAdjustmentReasons, setDailyAdjustmentReasons] = useState<Record<string, string>>(() => initialState.dailyAdjustmentReasons);
+  const [adjustmentHistoryMap, setAdjustmentHistoryMap] = useState<Record<string, AdjustmentRecord[]>>(() => initialState.adjustmentHistoryMap);
 
   useEffect(() => {
     setPersonRows(initialPersonRows);
@@ -648,13 +741,19 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     setRecognitionLogsOpen(false);
     setLogsExpanded(false);
     setDailyDetailFilter('all');
-    setDailyAdjustmentReasons({});
+    setDailyLevel3DraftValues({});
+    setDailyAdjustmentReasons(initialDailyAdjustmentReasons);
     setAmountOverrides({});
-    setAdjustmentHistoryMap({});
+    setAdjustmentHistoryMap(initialAdjustmentHistoryMap);
     setAdjustmentModal(null);
     setDraftAdjustmentValue('');
     setDraftAdjustmentReason('');
-  }, [initialPersonRows, recognitionResults]);
+    setTotalAmountAdjustment(0);
+    setTotalAmountAdjustmentModalOpen(false);
+    setDraftTotalAdjustmentValue('');
+    setDraftTotalAdjustmentReason('');
+    setTotalAmountAdjustmentHistory([]);
+  }, [initialAdjustmentHistoryMap, initialDailyAdjustmentReasons, initialPersonRows, recognitionResults]);
 
   const selectedRecognitionResult = recognitionResults[0];
 
@@ -728,7 +827,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           systemUnitPrice: existing.systemUnitPrice,
           recognitionUnitPrice: existing.recognitionUnitPrice,
           amount: existing.amount,
-          recognitionAmount: existing.recognitionAmount,
+          recognitionAmount: roundValue(recognitionLevel3Days * existing.recognitionUnitPrice),
           modified: existing.modified,
         };
       }
@@ -746,7 +845,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
         systemUnitPrice: selectedMonthlyRow.systemUnitPrice,
         recognitionUnitPrice: selectedMonthlyRow.recognitionUnitPrice,
         amount: 0,
-        recognitionAmount: 0,
+        recognitionAmount: roundValue(recognitionLevel3Days * selectedMonthlyRow.recognitionUnitPrice),
         modified: false,
       };
     });
@@ -785,7 +884,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     period: `${record.period}，按1月/2月/3月分组`,
     center: record.operationCenter,
     workDays: targetWorkDays,
-    amount: targetAmount,
+    amount: roundValue(targetAmount + totalAmountAdjustment),
   };
 
   const displayStatus = normalizeLevelThreeStatus(record.status);
@@ -795,6 +894,10 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const acceptanceGranularity = getAcceptanceGranularity(record);
 
   const updatePersonRow = (id: string, value: string) => {
+    if (value.trim() === '') {
+      return;
+    }
+
     if (id) {
       setDailyAdjustmentReasons((prev) => {
         const currentValue = prev[id]?.trim();
@@ -833,6 +936,11 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
         return nextRows;
       }
 
+      const baselineRow = selectedDailyDisplayRows.find((item) => item.id === id);
+      const baselineLevel1Days = baselineRow?.level1Days || 0;
+      const baselineLevel2Days = baselineRow?.level2Days || 0;
+      const recognitionLevel3Days = baselineRow?.recognitionLevel3Days || 0;
+
       return [
         ...nextRows,
         {
@@ -842,17 +950,48 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           date: id.replace(`${selectedMonthlyRow.id}-`, ''),
           position: selectedMonthlyRow.position,
           member: selectedMonthlyRow.member,
-          level1Days: 0,
-          level2Days: 0,
+          level1Days: baselineLevel1Days,
+          level2Days: baselineLevel2Days,
           level3Days,
           sourceGranularity: selectedMonthlyRow.sourceGranularity,
           systemUnitPrice: selectedMonthlyRow.systemUnitPrice,
           recognitionUnitPrice: selectedMonthlyRow.recognitionUnitPrice,
           amount: Number((level3Days * selectedMonthlyRow.systemUnitPrice).toFixed(2)),
-          recognitionAmount: Number((level3Days * selectedMonthlyRow.recognitionUnitPrice).toFixed(2)),
+          recognitionAmount: Number((recognitionLevel3Days * selectedMonthlyRow.recognitionUnitPrice).toFixed(2)),
           modified: true,
         },
       ];
+    });
+  };
+
+  const updateDailyLevel3DraftValue = (id: string, value: string) => {
+    setDailyLevel3DraftValues((prev) => ({
+      ...prev,
+      [id]: value,
+    }));
+
+    if (value.trim() === '') {
+      return;
+    }
+
+    updatePersonRow(id, value);
+  };
+
+  const commitDailyLevel3DraftValue = (id: string) => {
+    const draftValue = dailyLevel3DraftValues[id];
+
+    if (typeof draftValue === 'undefined') {
+      return;
+    }
+
+    if (draftValue.trim() !== '') {
+      updatePersonRow(id, draftValue);
+    }
+
+    setDailyLevel3DraftValues((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
   };
 
@@ -866,6 +1005,16 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     });
 
     setDailyAdjustmentReasons((prev) => {
+      const next = { ...prev };
+      if (initialDailyAdjustmentReasons[id]) {
+        next[id] = initialDailyAdjustmentReasons[id];
+      } else {
+        delete next[id];
+      }
+      return next;
+    });
+
+    setDailyLevel3DraftValues((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
@@ -891,6 +1040,18 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     setDailyAdjustmentReasons((prev) => {
       const next = { ...prev };
       dailyIdsToClear.forEach((dailyId) => {
+        if (initialDailyAdjustmentReasons[dailyId]) {
+          next[dailyId] = initialDailyAdjustmentReasons[dailyId];
+        } else {
+          delete next[dailyId];
+        }
+      });
+      return next;
+    });
+
+    setDailyLevel3DraftValues((prev) => {
+      const next = { ...prev };
+      dailyIdsToClear.forEach((dailyId) => {
         delete next[dailyId];
       });
       return next;
@@ -913,9 +1074,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
 
     setAdjustmentModal({ summaryId, type });
     setDraftAdjustmentReason('');
-    setDraftAdjustmentValue(
-      String(type === 'capacity' ? roundValue(currentRow.level3Days) : roundValue(currentRow.computedAmount)),
-    );
+    setDraftAdjustmentValue('0');
   };
 
   const closeAdjustmentModal = () => {
@@ -939,43 +1098,17 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
       return;
     }
 
-    const nextValue = Math.max(0, Number(draftAdjustmentValue) || 0);
-    const beforeValue = adjustmentModal.type === 'capacity' ? currentAdjustmentRow.level3Days : currentAdjustmentRow.computedAmount;
+    const deltaValue = roundValue(Number(draftAdjustmentValue) || 0);
+    const beforeValue = adjustmentModal.type === 'capacity' ? roundValue(currentAdjustmentRow.level2Days) : roundValue(currentAdjustmentRow.computedAmount);
+    const afterValue =
+      adjustmentModal.type === 'capacity'
+        ? roundValue(currentAdjustmentRow.level3Days)
+        : roundValue(Math.max(0, currentAdjustmentRow.computedAmount + deltaValue));
 
-    if (adjustmentModal.type === 'capacity') {
-      const targetRows = personRows.filter((item) => item.summaryId === adjustmentModal.summaryId);
-      const nextDailyCapacities = createDailyCapacities(nextValue, targetRows.length);
-      let currentIndex = 0;
-
-      setPersonRows((prev) =>
-        prev.map((item) => {
-          if (item.summaryId !== adjustmentModal.summaryId) {
-            return item;
-          }
-
-          const level3Days = nextDailyCapacities[currentIndex] ?? 0;
-          currentIndex += 1;
-
-          return {
-            ...item,
-            level3Days,
-            amount: roundValue(level3Days * item.systemUnitPrice),
-            modified: true,
-          };
-        }),
-      );
-
-      setDailyAdjustmentReasons((prev) => {
-        const next = { ...prev };
-        targetRows.forEach((item) => {
-          next[item.id] = draftAdjustmentReason.trim();
-        });
-        return next;
-      });
-    } else {
+    if (adjustmentModal.type === 'amount') {
       setAmountOverrides((prev) => ({
         ...prev,
-        [adjustmentModal.summaryId]: roundValue(nextValue),
+        [adjustmentModal.summaryId]: afterValue,
       }));
     }
 
@@ -986,8 +1119,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           id: `${adjustmentModal.summaryId}-${adjustmentModal.type}-${Date.now()}`,
           summaryId: adjustmentModal.summaryId,
           type: adjustmentModal.type,
+          adjustmentValue: deltaValue,
           beforeValue: roundValue(beforeValue),
-          afterValue: roundValue(nextValue),
+          afterValue: roundValue(afterValue),
           reason: draftAdjustmentReason.trim(),
           operator: record.handler,
           time: nowText(),
@@ -997,6 +1131,46 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     }));
 
     closeAdjustmentModal();
+  };
+
+  const openTotalAmountAdjustmentModal = () => {
+    setDraftTotalAdjustmentValue('0');
+    setDraftTotalAdjustmentReason('');
+    setTotalAmountAdjustmentModalOpen(true);
+  };
+
+  const closeTotalAmountAdjustmentModal = () => {
+    setTotalAmountAdjustmentModalOpen(false);
+    setDraftTotalAdjustmentValue('');
+    setDraftTotalAdjustmentReason('');
+  };
+
+  const saveTotalAmountAdjustment = () => {
+    if (!draftTotalAdjustmentReason.trim()) {
+      return;
+    }
+
+    const beforeValue = totalAmountAdjustment;
+    const deltaValue = Number(draftTotalAdjustmentValue) || 0;
+    const nextValue = roundValue(beforeValue + deltaValue);
+
+    setTotalAmountAdjustment(nextValue);
+    setTotalAmountAdjustmentHistory((prev) => [
+      {
+        id: `level3-total-amount-${Date.now()}`,
+        summaryId: 'level3-total-amount',
+        type: 'amount',
+        adjustmentValue: deltaValue,
+        beforeValue,
+        afterValue: nextValue,
+        reason: draftTotalAdjustmentReason.trim(),
+        operator: record.handler,
+        time: nowText(),
+      },
+      ...prev,
+    ]);
+
+    closeTotalAmountAdjustmentModal();
   };
 
   return (
@@ -1044,11 +1218,19 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-x-8 gap-y-5 px-5 py-5 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-5 px-5 py-5 md:grid-cols-2 lg:grid-cols-4">
           <div><div className="text-xs text-on-surface-variant mb-1">客户</div><div className="text-sm font-medium text-on-surface">{summary.customer}</div></div>
           <div><div className="text-xs text-on-surface-variant mb-1">合同</div><div className="text-sm font-medium text-on-surface">{summary.contract}</div></div>
           <div><div className="text-xs text-on-surface-variant mb-1">期间</div><div className="text-sm font-medium text-on-surface">{summary.period}</div></div>
           <div><div className="text-xs text-on-surface-variant mb-1">所属中心</div><div className="text-sm font-medium text-on-surface">{summary.center}</div></div>
+          <div>
+            <div className="text-xs text-on-surface-variant mb-1">客户确认粒度</div>
+            <div>
+              <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${acceptanceGranularity === 'daily' ? 'bg-cyan-100 text-cyan-700' : 'bg-violet-100 text-violet-700'}`}>
+                {granularityLabelMap[acceptanceGranularity]}
+              </span>
+            </div>
+          </div>
           <div><div className="text-xs text-on-surface-variant mb-1">客户确认产能/人天</div><div className="text-sm font-medium text-on-surface">{formatNumber(summary.workDays)}</div></div>
           <div><div className="text-xs text-on-surface-variant mb-1">客户确认金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(summary.amount)}</div></div>
         </div>
@@ -1062,7 +1244,18 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
 
       <div className="admin-card overflow-hidden">
         <div className="flex min-h-[680px] flex-col overflow-hidden">
-          <SectionTitle title="人员产能明细" />
+          <SectionTitle
+            title="人员产能明细"
+            extra={canEdit ? (
+              <button
+                type="button"
+                onClick={openTotalAmountAdjustmentModal}
+                className="inline-flex items-center gap-1.5 rounded border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+              >
+                调整金额
+              </button>
+            ) : undefined}
+          />
           <div className="border-b border-outline-variant px-5 py-3">
             <div className="flex items-center justify-start gap-3 whitespace-nowrap">
               <input
@@ -1117,10 +1310,11 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
             </div>
           </div>
           <div className="flex-1 overflow-auto custom-scrollbar">
-            <table className="w-full min-w-[1380px] text-left border-collapse">
+            <table className="w-full min-w-[1490px] text-left border-collapse">
               <thead>
                 <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                   <th className="w-[112px] px-4 py-3">人员</th>
+                  <th className="w-[180px] px-4 py-3">所属项目</th>
                   <th className="w-[120px] px-4 py-3">合同岗位</th>
                   <th className="w-[84px] px-4 py-3">月份</th>
                   <th className="w-[88px] px-4 py-3">一级产能</th>
@@ -1136,7 +1330,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
                 {!filteredPersonRows.length && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                    <td colSpan={12} className="px-4 py-10 text-center text-sm text-on-surface-variant">
                       当前筛选条件下暂无符合条件的人员产能明细
                     </td>
                   </tr>
@@ -1149,6 +1343,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                         <RowTags hasDiff={item.hasDiff} modified={item.modified} />
                       </div>
                     </td>
+                    <td className="px-4 py-4 text-on-surface-variant">{record.project}</td>
                     <td className="px-4 py-4 text-on-surface-variant">{item.position}</td>
                     <td className="px-4 py-4 text-on-surface-variant">{item.month}</td>
                     <td className="px-4 py-4">{formatNumber(item.level1Days)}</td>
@@ -1252,6 +1447,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                     <span>|</span>
                     <span>月份：{selectedMonthlyRow.month}</span>
                     <span>|</span>
+                    <span>粒度：{granularityLabelMap[selectedMonthlyRow.sourceGranularity]}</span>
+                    <span>|</span>
                     <span>产能数：{formatNumber(selectedMonthlyRow.level3Days)}</span>
                     <span>|</span>
                     <span>计算金额：{formatCurrency(selectedMonthlyRow.computedAmount)}</span>
@@ -1343,8 +1540,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                             type="number"
                             step="0.5"
                             min="0"
-                            value={item.level3Days}
-                            onChange={(event) => updatePersonRow(item.id, event.target.value)}
+                            value={dailyLevel3DraftValues[item.id] ?? String(item.level3Days)}
+                            onChange={(event) => updateDailyLevel3DraftValue(item.id, event.target.value)}
+                            onBlur={() => commitDailyLevel3DraftValue(item.id)}
                             className="admin-input w-full border-amber-300 bg-white px-2.5 shadow-[0_0_0_2px_rgba(245,158,11,0.08)]"
                           />
                         ) : (
@@ -1404,7 +1602,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   {adjustmentModal.type === 'capacity' ? '调整产能' : '调整金额'}
                 </div>
                 <div className="mt-1 text-xs text-on-surface-variant">
-                  上部填写调整值和调整原因，下部展示该人员在当前月份下的多次调整记录。
+                  {adjustmentModal.type === 'capacity'
+                    ? '本次填写的是三级与二级不一致的产能增减量和原因，仅做差异记录，不改写正式三级产能。'
+                    : '本次填写金额增减量和调整原因，下部展示该人员在当前月份下的多次调整记录。'}
                 </div>
               </div>
               <button
@@ -1433,16 +1633,28 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               </div>
               <div>
                 <div className="mb-1 text-xs text-on-surface-variant">
-                  {adjustmentModal.type === 'capacity' ? '调整后三级产能' : '调整后计算金额'}
+                  {adjustmentModal.type === 'capacity' ? '产能调整增减量' : '金额调整增减量'}
                 </div>
                 <input
                   type="number"
                   step={adjustmentModal.type === 'capacity' ? '0.5' : '0.01'}
-                  min="0"
                   value={draftAdjustmentValue}
                   onChange={(event) => setDraftAdjustmentValue(event.target.value)}
                   className="admin-input h-10 w-full px-3 text-sm"
                 />
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  {adjustmentModal.type === 'capacity' ? (
+                    <>
+                      当前二级产能：{formatNumber(currentAdjustmentRow.level2Days)} 人天，当前三级产能：{formatNumber(currentAdjustmentRow.level3Days)} 人天，
+                      本次记录差异量：{formatSignedNumber(roundValue(Number(draftAdjustmentValue) || 0))} 人天。保存后三级产能保持 {formatNumber(currentAdjustmentRow.level3Days)} 人天不变。
+                    </>
+                  ) : (
+                    <>
+                      当前值：{formatCurrency(currentAdjustmentRow.computedAmount)}，调整后：
+                      {formatCurrency(roundValue(Math.max(0, currentAdjustmentRow.computedAmount + (Number(draftAdjustmentValue) || 0))))}
+                    </>
+                  )}
+                </div>
               </div>
               <div>
                 <div className="mb-1 text-xs text-on-surface-variant">调整原因</div>
@@ -1450,7 +1662,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   type="text"
                   value={draftAdjustmentReason}
                   onChange={(event) => setDraftAdjustmentReason(event.target.value)}
-                  placeholder={adjustmentModal.type === 'capacity' ? '请填写产能调整原因' : '请填写金额调整原因'}
+                  placeholder={adjustmentModal.type === 'capacity' ? '请填写三级与二级差异原因' : '请填写金额调整原因'}
                   className="admin-input h-10 w-full px-3 text-sm"
                 />
               </div>
@@ -1462,6 +1674,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                       <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                         <th className="px-4 py-3">时间</th>
                         <th className="px-4 py-3">类型</th>
+                        <th className="px-4 py-3">调整量</th>
                         <th className="px-4 py-3">调整前</th>
                         <th className="px-4 py-3">调整后</th>
                         <th className="px-4 py-3">调整原因</th>
@@ -1471,7 +1684,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                     <tbody className="divide-y divide-outline-variant text-sm">
                       {!currentAdjustmentRecords.length && (
                         <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-on-surface-variant">
+                          <td colSpan={7} className="px-4 py-8 text-center text-on-surface-variant">
                             暂无调整记录
                           </td>
                         </tr>
@@ -1480,6 +1693,11 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                         <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
                           <td className="px-4 py-3 text-on-surface-variant">{item.time}</td>
                           <td className="px-4 py-3 text-on-surface">{item.type === 'capacity' ? '调整产能' : '调整金额'}</td>
+                          <td className="px-4 py-3 text-on-surface">
+                            {item.type === 'capacity'
+                              ? `${formatSignedNumber(roundValue(item.adjustmentValue ?? item.afterValue - item.beforeValue))} 人天`
+                              : formatSignedCurrency(roundValue(item.adjustmentValue ?? item.afterValue - item.beforeValue))}
+                          </td>
                           <td className="px-4 py-3 text-on-surface">
                             {item.type === 'capacity' ? `${formatNumber(item.beforeValue)} 人天` : formatCurrency(item.beforeValue)}
                           </td>
@@ -1507,6 +1725,111 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 type="button"
                 onClick={saveAdjustment}
                 disabled={!draftAdjustmentReason.trim()}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                保存调整
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {totalAmountAdjustmentModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={closeTotalAmountAdjustmentModal}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">调整金额</div>
+                <div className="mt-1 text-xs text-on-surface-variant">用于处理不能归属到具体产能人员的金额，本次填写金额增减量并记录原因。</div>
+              </div>
+              <button
+                type="button"
+                onClick={closeTotalAmountAdjustmentModal}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm text-on-surface">
+                当前客户确认金额：{formatCurrency(summary.amount)}
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-on-surface-variant">金额调整增减量</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={draftTotalAdjustmentValue}
+                  onChange={(event) => setDraftTotalAdjustmentValue(event.target.value)}
+                  className="admin-input h-10 w-full px-3 text-sm"
+                />
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  当前未归属金额调整：{formatCurrency(totalAmountAdjustment)}，调整后：
+                  {formatCurrency(roundValue(totalAmountAdjustment + (Number(draftTotalAdjustmentValue) || 0)))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-on-surface-variant">调整原因</div>
+                <input
+                  type="text"
+                  value={draftTotalAdjustmentReason}
+                  onChange={(event) => setDraftTotalAdjustmentReason(event.target.value)}
+                  placeholder="请填写金额调整原因"
+                  className="admin-input h-10 w-full px-3 text-sm"
+                />
+              </div>
+              <div className="rounded-xl border border-outline-variant bg-white">
+                <div className="border-b border-outline-variant px-4 py-3 text-sm font-medium text-on-surface">调整记录</div>
+                <div className="max-h-[280px] overflow-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
+                        <th className="px-4 py-3">时间</th>
+                        <th className="px-4 py-3">调整前</th>
+                        <th className="px-4 py-3">调整后</th>
+                        <th className="px-4 py-3">调整原因</th>
+                        <th className="px-4 py-3">操作人</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant text-sm">
+                      {!totalAmountAdjustmentHistory.length && (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
+                        </tr>
+                      )}
+                      {totalAmountAdjustmentHistory.map((item) => (
+                        <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
+                          <td className="px-4 py-3 text-on-surface-variant">{item.time}</td>
+                          <td className="px-4 py-3 text-on-surface">{formatCurrency(item.beforeValue)}</td>
+                          <td className="px-4 py-3 text-on-surface">{formatCurrency(item.afterValue)}</td>
+                          <td className="px-4 py-3 text-on-surface-variant">{item.reason}</td>
+                          <td className="px-4 py-3 text-on-surface-variant">{item.operator}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={closeTotalAmountAdjustmentModal}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={saveTotalAmountAdjustment}
+                disabled={!draftTotalAdjustmentReason.trim()}
                 className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
               >
                 保存调整

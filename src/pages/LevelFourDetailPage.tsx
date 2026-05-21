@@ -2,6 +2,7 @@ import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, RotateCcw, Save, Send,
 import React, { useEffect, useMemo, useState } from 'react';
 import { MainFooterPortal } from '../components/layout/Shell';
 import { CapacityRecord, LEVEL3_DATA, normalizeApprovalStatus } from '../types';
+import { findRecognizedLevelFourAdjustment } from '../utils/levelFourRecognition';
 
 interface LevelFourDetailPageProps {
   record: CapacityRecord;
@@ -135,6 +136,7 @@ const statusColorMap: Record<string, string> = {
   '待提交': 'bg-amber-100 text-amber-700',
   '待审核': 'bg-sky-100 text-sky-700',
   '待上传发票': 'bg-cyan-100 text-cyan-700',
+  '待归档': 'bg-violet-100 text-violet-700',
   '已归档': 'bg-emerald-100 text-emerald-700',
 };
 
@@ -362,7 +364,7 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
         const workdayDates = createWorkdayDates(periodYear, monthNumber);
         const dailyCapacities = createDailyCapacities(member.monthlyDays[monthIndex] || 0, workdayDates.length);
 
-        return workdayDates.map((date, dayIndex) => {
+        const baseRows = workdayDates.map((date, dayIndex) => {
           const level3Days = dailyCapacities[dayIndex] || 0;
 
           return {
@@ -381,9 +383,125 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
             modified: false,
           };
         });
+
+        const recognizedAdjustment = findRecognizedLevelFourAdjustment(record.id, member.name, month, item.position);
+
+        if (recognizedAdjustment?.dailyAdjustments?.length) {
+          const adjustmentMap = new Map(recognizedAdjustment.dailyAdjustments.map((adjustment) => [adjustment.date, adjustment]));
+
+          return baseRows.map((row) => {
+            const matchedAdjustment = adjustmentMap.get(row.date);
+
+            if (!matchedAdjustment) {
+              return row;
+            }
+
+            const nextLevel4Days = roundValue(Math.max(0, row.level3Days + matchedAdjustment.delta));
+
+            return {
+              ...row,
+              level4Days: nextLevel4Days,
+              level4Amount: roundValue(nextLevel4Days * unitPrice),
+              reason: matchedAdjustment.reason || recognizedAdjustment.reason,
+              modified: true,
+            };
+          });
+        }
+
+        if (typeof recognizedAdjustment?.capacityDelta === 'number') {
+          const nextTotalLevel4Days = roundValue(
+            Math.max(0, baseRows.reduce((sum, row) => sum + row.level3Days, 0) + recognizedAdjustment.capacityDelta),
+          );
+          const redistributedCapacities = createDailyCapacities(nextTotalLevel4Days, baseRows.length);
+
+          return baseRows.map((row, index) => {
+            const nextLevel4Days = redistributedCapacities[index] ?? 0;
+            return {
+              ...row,
+              level4Days: nextLevel4Days,
+              level4Amount: roundValue(nextLevel4Days * unitPrice),
+              modified: true,
+            };
+          });
+        }
+
+        return baseRows;
       }),
     ),
   );
+};
+
+const createInitialAmountOverrides = (record: CapacityRecord, rows: DailyCapacityRow[]) => {
+  const overrides: Record<string, number> = {};
+  const summaryRows = buildMonthlyRows(rows, {});
+
+  summaryRows.forEach((row) => {
+    const recognizedAdjustment = findRecognizedLevelFourAdjustment(record.id, row.member, row.month, row.position);
+
+    if (typeof recognizedAdjustment?.amountDelta === 'number') {
+      overrides[row.id] = roundValue(row.level4Amount + recognizedAdjustment.amountDelta);
+    }
+  });
+
+  return overrides;
+};
+
+const createInitialAdjustmentHistoryMap = (record: CapacityRecord, rows: DailyCapacityRow[]) => {
+  const historyMap: Record<string, AdjustmentRecord[]> = {};
+  const summaryRows = buildMonthlyRows(rows, {});
+
+  summaryRows.forEach((row) => {
+    const recognizedAdjustment = findRecognizedLevelFourAdjustment(record.id, row.member, row.month, row.position);
+
+    if (!recognizedAdjustment) {
+      return;
+    }
+
+    const histories: AdjustmentRecord[] = [];
+
+    if (recognizedAdjustment.dailyAdjustments?.length) {
+      histories.push({
+        id: `${row.id}-daily-recognized`,
+        summaryId: row.id,
+        type: 'capacity',
+        beforeValue: row.level3Days,
+        afterValue: row.level4Days,
+        reason: recognizedAdjustment.reason,
+        operator: '系统识别',
+        time: '确认单识别回填',
+      });
+    } else if (typeof recognizedAdjustment.capacityDelta === 'number') {
+      histories.push({
+        id: `${row.id}-capacity-recognized`,
+        summaryId: row.id,
+        type: 'capacity',
+        beforeValue: row.level3Days,
+        afterValue: row.level4Days,
+        reason: recognizedAdjustment.reason,
+        operator: '系统识别',
+        time: '确认单识别回填',
+      });
+    }
+
+    if (typeof recognizedAdjustment.amountDelta === 'number') {
+      histories.unshift({
+        id: `${row.id}-amount-recognized`,
+        summaryId: row.id,
+        type: 'amount',
+        beforeValue: row.level4Amount,
+        afterValue: roundValue(row.level4Amount + recognizedAdjustment.amountDelta),
+        reason: recognizedAdjustment.reason,
+        operator: '系统识别',
+        time: '确认单识别回填',
+      });
+    }
+
+    if (histories.length) {
+      historyMap[row.id] = histories;
+    }
+  });
+
+  return historyMap;
 };
 
 const buildMonthlyRows = (rows: DailyCapacityRow[], amountOverrides: Record<string, number>): PersonMonthlyRow[] => {
@@ -527,6 +645,22 @@ const createApprovalLogs = (record: CapacityRecord): ApprovalLogItem[] => [
     action: '待审核',
     detail: '等待审批人核对四级产能与三级确认结果差异。',
   },
+  {
+    id: `${record.id}-log-3`,
+    node: '财务开票上传',
+    handler: '陈敏',
+    time: '2026-04-10 14:20',
+    action: '上传发票',
+    detail: '财务完成开票并上传发票附件，等待销售归档确认。',
+  },
+  {
+    id: `${record.id}-log-4`,
+    node: '销售归档',
+    handler: record.handler,
+    time: '2026-04-10 16:05',
+    action: '确认归档',
+    detail: '销售确认发票已发送客户后执行归档。',
+  },
 ];
 
 const RowTags = ({ hasDiff, modified }: { hasDiff: boolean; modified: boolean }) => (
@@ -580,9 +714,16 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   const [positionFilter, setPositionFilter] = useState('');
   const [selectedMonthlyDetailId, setSelectedMonthlyDetailId] = useState('');
   const [dailyDetailFilter, setDailyDetailFilter] = useState<DailyDetailFilter>('all');
-  const [personRows, setPersonRows] = useState<DailyCapacityRow[]>(() => createDailyRows(record));
-  const [amountOverrides, setAmountOverrides] = useState<Record<string, number>>({});
-  const [adjustmentHistoryMap, setAdjustmentHistoryMap] = useState<Record<string, AdjustmentRecord[]>>({});
+  const initialPersonRows = useMemo(() => createDailyRows(record), [record]);
+  const initialAmountOverrides = useMemo(() => createInitialAmountOverrides(record, initialPersonRows), [initialPersonRows, record]);
+  const initialAdjustmentHistoryMap = useMemo(
+    () => createInitialAdjustmentHistoryMap(record, initialPersonRows),
+    [initialPersonRows, record],
+  );
+
+  const [personRows, setPersonRows] = useState<DailyCapacityRow[]>(() => initialPersonRows);
+  const [amountOverrides, setAmountOverrides] = useState<Record<string, number>>(() => initialAmountOverrides);
+  const [adjustmentHistoryMap, setAdjustmentHistoryMap] = useState<Record<string, AdjustmentRecord[]>>(() => initialAdjustmentHistoryMap);
   const [adjustmentModal, setAdjustmentModal] = useState<{ summaryId: string; type: AdjustmentType } | null>(null);
   const [draftAdjustmentValue, setDraftAdjustmentValue] = useState('');
   const [draftAdjustmentReason, setDraftAdjustmentReason] = useState('');
@@ -599,8 +740,9 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   const [totalAdjustmentReason, setTotalAdjustmentReason] = useState('');
   const [totalAdjustmentTouched, setTotalAdjustmentTouched] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState('');
+  const [archiveConfirmModalOpen, setArchiveConfirmModalOpen] = useState(false);
+  const [archiveCustomerSent, setArchiveCustomerSent] = useState(false);
 
-  const initialPersonRows = useMemo(() => createDailyRows(record), [record]);
   const initialPersonRowMap = useMemo(
     () => new Map(initialPersonRows.map((item) => [item.id, item])),
     [initialPersonRows],
@@ -614,8 +756,8 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     setSelectedMonthlyDetailId('');
     setDailyDetailFilter('all');
     setPersonRows(initialPersonRows);
-    setAmountOverrides({});
-    setAdjustmentHistoryMap({});
+    setAmountOverrides(initialAmountOverrides);
+    setAdjustmentHistoryMap(initialAdjustmentHistoryMap);
     setAdjustmentModal(null);
     setDraftAdjustmentValue('');
     setDraftAdjustmentReason('');
@@ -631,13 +773,16 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     setTotalAdjustmentReason('');
     setTotalAdjustmentTouched(false);
     setLastSavedAt('');
-  }, [initialPersonRows, record]);
+    setArchiveConfirmModalOpen(false);
+    setArchiveCustomerSent(false);
+  }, [initialAdjustmentHistoryMap, initialAmountOverrides, initialPersonRows, record]);
 
   const relatedLevelThreeBatches = useMemo(() => getRelatedLevelThreeBatches(record), [record]);
   const canEdit = currentStatus === '待提交';
   const canReview = currentStatus === '待审核';
   const canUploadInvoice = currentStatus === '待上传发票';
-  const showInvoiceSection = ['待上传发票', '已归档'].includes(currentStatus);
+  const canArchive = currentStatus === '待归档';
+  const showInvoiceSection = ['待上传发票', '待归档', '已归档'].includes(currentStatus);
   const approvalLogs = useMemo(() => createApprovalLogs(record), [record]);
 
   const monthlyRows = useMemo(() => buildMonthlyRows(personRows, amountOverrides), [amountOverrides, personRows]);
@@ -786,10 +931,14 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   const invoiceCompareStatusText = currentStatus === '已归档'
     ? '金额匹配，已归档'
     : invoiceCompareMatched
-      ? '金额匹配，可归档'
+      ? currentStatus === '待归档'
+        ? '金额匹配，待销售归档'
+        : '金额匹配，可归档'
       : currentStatus === '待上传发票'
         ? '待补齐上传金额'
-        : '待审批通过后上传';
+        : currentStatus === '待归档'
+          ? '待补齐上传金额'
+          : '待审批通过后上传';
 
   const updateDailyLevel4Days = (id: string, value: string) => {
     const level4Days = Math.max(0, Number(value) || 0);
@@ -816,6 +965,9 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
         return nextRows;
       }
 
+      const baselineRow = selectedDailyDisplayRows.find((item) => item.id === id);
+      const baselineLevel3Days = baselineRow?.level3Days || 0;
+
       return [
         ...nextRows,
         {
@@ -826,9 +978,9 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
           position: selectedMonthlyRow.position,
           member: selectedMonthlyRow.member,
           unitPrice: selectedMonthlyRow.unitPrice,
-          level3Days: 0,
+          level3Days: baselineLevel3Days,
           level4Days,
-          level3Amount: 0,
+          level3Amount: roundValue(baselineLevel3Days * selectedMonthlyRow.unitPrice),
           level4Amount: roundValue(level4Days * selectedMonthlyRow.unitPrice),
           reason: '',
           modified: true,
@@ -859,6 +1011,9 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
         return nextRows;
       }
 
+      const baselineRow = selectedDailyDisplayRows.find((item) => item.id === id);
+      const baselineLevel3Days = baselineRow?.level3Days || 0;
+
       return [
         ...nextRows,
         {
@@ -869,9 +1024,9 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
           position: selectedMonthlyRow.position,
           member: selectedMonthlyRow.member,
           unitPrice: selectedMonthlyRow.unitPrice,
-          level3Days: 0,
+          level3Days: baselineLevel3Days,
           level4Days: 0,
-          level3Amount: 0,
+          level3Amount: roundValue(baselineLevel3Days * selectedMonthlyRow.unitPrice),
           level4Amount: 0,
           reason: value,
           modified: true,
@@ -943,7 +1098,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
 
     setAdjustmentModal({ summaryId, type });
     setDraftAdjustmentReason('');
-    setDraftAdjustmentValue(String(type === 'capacity' ? roundValue(currentRow.level4Days) : roundValue(currentRow.level4Amount)));
+    setDraftAdjustmentValue('0');
   };
 
   const closeAdjustmentModal = () => {
@@ -967,8 +1122,9 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
       return;
     }
 
-    const nextValue = Math.max(0, Number(draftAdjustmentValue) || 0);
+    const deltaValue = Number(draftAdjustmentValue) || 0;
     const beforeValue = adjustmentModal.type === 'capacity' ? currentAdjustmentRow.level4Days : currentAdjustmentRow.level4Amount;
+    const nextValue = roundValue(Math.max(0, beforeValue + deltaValue));
 
     if (adjustmentModal.type === 'capacity') {
       const targetRows = personRows.filter((item) => item.summaryId === adjustmentModal.summaryId);
@@ -1027,7 +1183,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   };
 
   const openTotalAdjustmentModal = () => {
-    setDraftTotalAdjustmentAmount(totalAdjustmentAmount || '0');
+    setDraftTotalAdjustmentAmount('0');
     setDraftTotalAdjustmentReason(totalAdjustmentReason);
     setTotalAdjustmentModalOpen(true);
   };
@@ -1038,7 +1194,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
 
   const saveTotalAdjustment = () => {
     setTotalAdjustmentTouched(true);
-    setTotalAdjustmentAmount(draftTotalAdjustmentAmount);
+    setTotalAdjustmentAmount(String(roundValue((Number(totalAdjustmentAmount) || 0) + (Number(draftTotalAdjustmentAmount) || 0))));
     setTotalAdjustmentReason(draftTotalAdjustmentReason.trim());
     setTotalAdjustmentModalOpen(false);
   };
@@ -1106,6 +1262,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     ]);
 
     setCurrentInvoiceStatus('已上传发票');
+    setCurrentStatus('待归档');
     setPendingInvoiceForms([]);
   };
 
@@ -1117,13 +1274,24 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     });
   };
 
+  const openArchiveConfirmModal = () => {
+    setArchiveCustomerSent(false);
+    setArchiveConfirmModalOpen(true);
+  };
+
+  const closeArchiveConfirmModal = () => {
+    setArchiveConfirmModalOpen(false);
+    setArchiveCustomerSent(false);
+  };
+
   const handleArchiveInvoices = () => {
-    if (!invoiceCompareMatched) {
+    if (!archiveCustomerSent) {
       return;
     }
 
     setCurrentStatus('已归档');
     setCurrentInvoiceStatus('已上传发票');
+    closeArchiveConfirmModal();
   };
 
   return (
@@ -1319,10 +1487,11 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
               </div>
             </div>
             <div className="flex-1 overflow-auto custom-scrollbar">
-              <table className="w-full min-w-[1220px] text-left border-collapse">
+              <table className="w-full min-w-[1360px] text-left border-collapse">
                 <thead>
                   <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                     <th className="w-[112px] px-4 py-3">人员</th>
+                    <th className="w-[180px] px-4 py-3">所属项目</th>
                     <th className="w-[96px] px-4 py-3">合同岗位</th>
                     <th className="w-[84px] px-4 py-3">月份</th>
                     <th className="px-4 py-3">三级产能</th>
@@ -1335,7 +1504,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
                   {!filteredPersonRows.length && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                      <td colSpan={9} className="px-4 py-10 text-center text-sm text-on-surface-variant">
                         当前筛选条件下暂无符合条件的人员明细
                       </td>
                     </tr>
@@ -1348,6 +1517,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                           <RowTags hasDiff={item.hasDiff} modified={item.modified} />
                         </div>
                       </td>
+                      <td className="px-4 py-4 text-on-surface-variant">{record.project}</td>
                       <td className="px-4 py-4 text-on-surface-variant">{item.position}</td>
                       <td className="px-4 py-4 text-on-surface-variant">{item.month}</td>
                       <td className="px-4 py-4">{formatNumber(item.level3Days)}</td>
@@ -1473,15 +1643,20 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 </div>
               </div>
               <div>
-                <div className="mb-1 text-xs text-on-surface-variant">{adjustmentModal.type === 'capacity' ? '调整后四级产能' : '调整后金额'}</div>
+                <div className="mb-1 text-xs text-on-surface-variant">{adjustmentModal.type === 'capacity' ? '产能调整增减量' : '金额调整增减量'}</div>
                 <input
                   type="number"
-                  min="0"
                   step={adjustmentModal.type === 'capacity' ? '0.5' : '0.01'}
                   value={draftAdjustmentValue}
                   onChange={(event) => setDraftAdjustmentValue(event.target.value)}
                   className="admin-input h-10 w-full px-3 text-sm"
                 />
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  当前值：{adjustmentModal.type === 'capacity' ? `${formatNumber(currentAdjustmentRow.level4Days)} 人天` : formatCurrency(currentAdjustmentRow.level4Amount)}，调整后：
+                  {adjustmentModal.type === 'capacity'
+                    ? `${formatNumber(roundValue(Math.max(0, currentAdjustmentRow.level4Days + (Number(draftAdjustmentValue) || 0))))} 人天`
+                    : formatCurrency(roundValue(Math.max(0, currentAdjustmentRow.level4Amount + (Number(draftAdjustmentValue) || 0))))}
+                </div>
               </div>
               <div>
                 <div className="mb-1 text-xs text-on-surface-variant">调整原因</div>
@@ -1610,14 +1785,13 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 财务上传发票
               </button>
             )}
-            {canUploadInvoice && (
+            {canArchive && (
               <button
                 type="button"
-                onClick={handleArchiveInvoices}
-                disabled={!invoiceCompareMatched}
-                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+                onClick={openArchiveConfirmModal}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
               >
-                发票归档
+                销售归档
               </button>
             )}
           </div>
@@ -1844,7 +2018,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
             </div>
             <div className="space-y-4 px-5 py-4">
               <div>
-                <div className="mb-1 text-xs text-on-surface-variant">调整金额</div>
+                <div className="mb-1 text-xs text-on-surface-variant">整体金额调整增减量</div>
                 <input
                   type="number"
                   step="0.01"
@@ -1852,6 +2026,10 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                   onChange={(event) => setDraftTotalAdjustmentAmount(event.target.value)}
                   className="admin-input h-10 w-full px-3 text-sm"
                 />
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  当前整体调整：{formatCurrency(Number(totalAdjustmentAmount) || 0)}，调整后：
+                  {formatCurrency(roundValue((Number(totalAdjustmentAmount) || 0) + (Number(draftTotalAdjustmentAmount) || 0)))}
+                </div>
               </div>
               <div>
                 <div className="mb-1 text-xs text-on-surface-variant">调整原因</div>
@@ -1879,6 +2057,48 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
               >
                 确认调整
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {archiveConfirmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6" onClick={closeArchiveConfirmModal}>
+          <div
+            className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-outline-variant px-5 py-4">
+              <div className="text-base font-semibold text-on-surface">销售归档确认</div>
+              <div className="mt-1 text-xs text-on-surface-variant">归档前需由销售确认发票是否已经发送给客户。</div>
+            </div>
+            <div className="space-y-4 px-5 py-5">
+              <label className="flex items-start gap-3 text-sm text-on-surface">
+                <input
+                  type="checkbox"
+                  checked={archiveCustomerSent}
+                  onChange={(event) => setArchiveCustomerSent(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
+                />
+                <span>已确认发票已经发送给客户，可执行销售归档。</span>
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={closeArchiveConfirmModal}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleArchiveInvoices}
+                disabled={!archiveCustomerSent}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                确认归档
               </button>
             </div>
           </div>

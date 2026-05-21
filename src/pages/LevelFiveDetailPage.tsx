@@ -1,5 +1,4 @@
 import {
-  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
@@ -8,7 +7,6 @@ import {
   FileSpreadsheet,
   RotateCcw,
   Save,
-  Send,
   XCircle,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -123,31 +121,12 @@ interface ApprovalLogItem {
 
 type QuickFilter = 'all' | 'diff' | 'modified';
 type DailyDetailFilter = 'all' | 'workday' | 'diff' | 'modified';
-type RoleView = 'finance' | 'sales' | 'approval';
 
 const QUARTER_MONTHS = ['1月', '2月', '3月'];
 
 const statusColorMap: Record<string, string> = {
   '回款中': 'bg-orange-100 text-orange-700',
-  '已回清待确认': 'bg-cyan-100 text-cyan-700',
-  '待审核': 'bg-sky-100 text-sky-700',
-  '待分中心审核': 'bg-sky-100 text-sky-700',
-  '待总部审核': 'bg-sky-100 text-sky-700',
-  '已生效': 'bg-emerald-100 text-emerald-700',
-  '已驳回': 'bg-rose-100 text-rose-700',
-  '已撤回': 'bg-slate-100 text-slate-700',
-};
-
-const getDefaultRoleView = (status: string): RoleView => {
-  if (status === '回款中') {
-    return 'finance';
-  }
-
-  if (['待审核', '待分中心审核', '待总部审核', '已生效'].includes(status)) {
-    return 'approval';
-  }
-
-  return 'sales';
+  '已回清': 'bg-emerald-100 text-emerald-700',
 };
 
 const roundValue = (value: number) => Number(value.toFixed(2));
@@ -496,19 +475,11 @@ const createApprovalLogs = (record: CapacityRecord): ApprovalLogItem[] => [
   },
   {
     id: `${record.id}-log-2`,
-    node: '销售确认',
-    handler: record.handler,
-    time: '2026-04-18 10:22',
-    action: '调整五级明细',
-    detail: '基于回款结果调整人员人天与金额，形成五级确认口径。',
-  },
-  {
-    id: `${record.id}-log-3`,
-    node: '审批流转',
-    handler: record.approverLevel === '总部审批' ? '总部运营中心' : '分中心负责人',
+    node: '财务处理',
+    handler: '陈敏',
     time: '2026-04-18 11:00',
-    action: '待审核',
-    detail: '等待审批人核对五级调整结果与累计回款金额。',
+    action: '回款完结',
+    detail: '累计回款与开票金额对齐后，财务执行回款完结。',
   },
 ];
 
@@ -608,20 +579,9 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
   }, [initialPersonRows, record]);
 
   const sourceLevelFourId = getSourceLevelFourId(record);
-  const currentRole = getDefaultRoleView(currentStatus);
-  const isFinanceView = currentRole === 'finance';
-  const isSalesView = currentRole === 'sales';
-  const isApprovalView = currentRole === 'approval';
   const canRegisterReceipt = currentStatus === '回款中';
-  const canEdit = ['回款中', '已回清待确认', '已驳回'].includes(currentStatus);
-  const canSubmit = ['已回清待确认', '已驳回'].includes(currentStatus) && currentReceiptStatus === '已回清';
-  const canReview = currentStatus === '待审核';
-  const canWithdraw = ['已回清待确认', '待审核'].includes(currentStatus);
-  const showFinanceAction = isFinanceView && canRegisterReceipt;
-  const showSalesEdit = isSalesView && canEdit;
-  const showSalesSubmit = isSalesView && canSubmit;
-  const showSalesWithdraw = isSalesView && canWithdraw;
-  const showApprovalAction = isApprovalView && canReview;
+  const showFinanceAction = canRegisterReceipt;
+  const showSalesEdit = false;
   const approvalLogs = useMemo(() => createApprovalLogs(record), [record]);
   const sourceBatchName = formatBatchName(record.workDays, record.amount, '2026-04-18 10:22');
   const linkedInvoices = useMemo(() => createLinkedInvoices(record), [record]);
@@ -813,11 +773,11 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
     () => roundValue(receiptRecords.reduce((sum, item) => sum + item.amount, 0)),
     [receiptRecords],
   );
-  const remainingReceivableAmount = roundValue(Math.max(0, totalPositionSummary.adjustedLevel5Amount - totalReceivedAmount));
-  const receiptCompletionRate = totalPositionSummary.adjustedLevel5Amount > 0
-    ? Math.min(100, roundValue((totalReceivedAmount / totalPositionSummary.adjustedLevel5Amount) * 100))
+  const remainingReceivableAmount = roundValue(Math.max(0, record.amount - totalReceivedAmount));
+  const receiptCompletionRate = record.amount > 0
+    ? Math.min(100, roundValue((totalReceivedAmount / record.amount) * 100))
     : 0;
-  const receiptMatchesAmount = Math.abs(totalReceivedAmount - totalPositionSummary.adjustedLevel5Amount) <= 0.01;
+  const receiptMatchesAmount = Math.abs(totalReceivedAmount - record.amount) <= 0.01;
 
   const selectedPositionHasModifiedRows = useMemo(
     () => monthlyRows.some((item) => item.position === selectedPosition && item.modified),
@@ -1009,13 +969,8 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
       },
     ]);
 
-    if (Math.abs(nextTotal - totalPositionSummary.adjustedLevel5Amount) <= 0.01) {
-      setCurrentReceiptStatus('已回清');
-      setCurrentStatus('已回清待确认');
-    } else {
-      setCurrentReceiptStatus('未回清');
-      setCurrentStatus('回款中');
-    }
+    setCurrentReceiptStatus(Math.abs(nextTotal - record.amount) <= 0.01 ? '已回清' : '未回清');
+    setCurrentStatus('回款中');
 
     closeReceiptModal();
   };
@@ -1026,29 +981,7 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
     }
 
     setCurrentReceiptStatus('已回清');
-    setCurrentStatus('已回清待确认');
-  };
-
-  const handleSubmitConfirm = () => {
-    if (currentReceiptStatus !== '已回清') {
-      return;
-    }
-
-    setCurrentStatus('待审核');
-  };
-
-  const handleApprove = () => {
-    if (currentStatus === '待审核') {
-      setCurrentStatus('已生效');
-    }
-  };
-
-  const handleReject = () => {
-    setCurrentStatus('已驳回');
-  };
-
-  const handleWithdraw = () => {
-    setCurrentStatus('已撤回');
+    setCurrentStatus('已回清');
   };
 
   const receiptDraftExceeded = (() => {
@@ -1111,7 +1044,7 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <div className="text-sm font-semibold text-on-surface">回款进度</div>
-                  <div className="mt-1 text-xs text-on-surface-variant">累计回款需与五级最终确认金额对齐，才能进入最终确认。</div>
+                  <div className="mt-1 text-xs text-on-surface-variant">累计回款需与开票金额对齐，财务可多次登记回款，金额对齐后执行回款完结。</div>
                 </div>
                 <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${receiptMatchesAmount ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
                   {receiptMatchesAmount ? '金额已对齐' : '待补足回款'}
@@ -1122,8 +1055,8 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
               </div>
               <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="rounded-xl bg-surface-container-low px-3 py-3">
-                  <div className="text-xs text-on-surface-variant">五级确认金额</div>
-                  <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(totalPositionSummary.adjustedLevel5Amount)}</div>
+                  <div className="text-xs text-on-surface-variant">回款目标金额</div>
+                  <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(record.amount)}</div>
                 </div>
                 <div className="rounded-xl bg-surface-container-low px-3 py-3">
                   <div className="text-xs text-on-surface-variant">累计回款</div>
@@ -1132,7 +1065,7 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
                 <div className={`rounded-xl px-3 py-3 ${receiptMatchesAmount ? 'bg-emerald-50' : 'bg-amber-50'}`}>
                   <div className="text-xs text-on-surface-variant">校验结果</div>
                   <div className={`mt-1 text-sm font-semibold ${receiptMatchesAmount ? 'text-emerald-700' : 'text-amber-800'}`}>
-                    {receiptMatchesAmount ? '满足最终确认条件' : `仍差 ${formatCurrency(remainingReceivableAmount)}`}
+                    {receiptMatchesAmount ? '满足回款完结条件' : `仍差 ${formatCurrency(remainingReceivableAmount)}`}
                   </div>
                 </div>
               </div>
@@ -1230,7 +1163,7 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
 
       <div className="admin-card overflow-hidden">
         <SectionTitle
-          title="审批轨迹"
+          title="操作记录"
           extra={
             <button
               type="button"
@@ -1281,46 +1214,6 @@ export const LevelFiveDetailPage = ({ record, onBack, onOpenLevelFourSource }: L
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 回款完结
-              </button>
-            )}
-            {showSalesSubmit && (
-              <button
-                type="button"
-                onClick={handleSubmitConfirm}
-                className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
-              >
-                <Send className="w-3.5 h-3.5" />
-                提交五级确认
-              </button>
-            )}
-            {showSalesWithdraw && (
-              <button
-                type="button"
-                onClick={handleWithdraw}
-                className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                撤回
-              </button>
-            )}
-            {showApprovalAction && (
-              <button
-                type="button"
-                onClick={handleApprove}
-                className="flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                通过
-              </button>
-            )}
-            {showApprovalAction && (
-              <button
-                type="button"
-                onClick={handleReject}
-                className="flex items-center gap-1.5 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-700 hover:bg-amber-100 transition-colors"
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                驳回
               </button>
             )}
           </div>

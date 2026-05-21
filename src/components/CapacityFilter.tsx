@@ -25,8 +25,8 @@ export const CapacityFilter = ({ type, actions }: CapacityFilterProps) => {
 
   const statusOptions = {
     level3: ['全部状态', '待确认', '待审核', '已通过'],
-    level4: ['全部状态', '待提交', '待审核', '待上传发票', '已归档'],
-    level5: ['全部状态', '回款中', '已回清待确认', '待审核', '已生效'],
+    level4: ['全部状态', '待提交', '待审核', '待上传发票', '待归档', '已归档'],
+    level5: ['全部状态', '回款中', '已回清'],
   }[type];
 
   const keywordPlaceholder = {
@@ -77,16 +77,6 @@ export const CapacityFilter = ({ type, actions }: CapacityFilterProps) => {
         <LabelInput label="关键字">
           <input type="text" className="admin-input" placeholder={keywordPlaceholder} />
         </LabelInput>
-        {type === 'level5' && (
-          <LabelInput label="审批层级">
-            <select className="admin-input">
-              <option value="">全部层级</option>
-              {['分中心审批', '总部审批'].map((item) => (
-                <option key={item} value={item}>{item}</option>
-              ))}
-            </select>
-          </LabelInput>
-        )}
         {type === 'level4' && (
           <LabelInput label="发票状态">
             <select className="admin-input">

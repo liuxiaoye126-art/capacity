@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CapacityFilter } from '../components/CapacityFilter';
 import { CapacityTable } from '../components/CapacityTable';
 import { CapacityRecord, LEVEL3_DATA } from '../types';
+import { findRecognizedLevelFourAdjustment } from '../utils/levelFourRecognition';
 
 interface LevelFourListPageProps {
   data: CapacityRecord[];
@@ -38,6 +39,7 @@ interface DraftLevelFourRow {
   sourceRecordId: string;
   sourceRecordNo: string;
   sourceGranularity: AcceptanceGranularity;
+  project: string;
   member: string;
   position: string;
   month: string;
@@ -61,12 +63,18 @@ interface LevelThreeTemplate {
 interface SavedDraftSnapshot {
   selectedLevelThreeIds: string[];
   draftRows: DraftLevelFourRow[];
+  customerFilter: string;
   memberKeyword: string;
   positionFilter: string;
   monthFilter: string;
   quickFilter: DraftQuickFilter;
+  overallAmountAdjustment: string;
+  overallAmountAdjustmentReason: string;
+  overallAmountAdjustmentHistory: DraftAdjustmentRecord[];
   savedAt: string;
 }
+
+const CURRENT_SALES_HANDLER = '李晓燕';
 
 const QUARTER_MONTHS = ['1月', '2月', '3月'];
 
@@ -88,6 +96,17 @@ const formatCurrency = (value: number) =>
     minimumFractionDigits: Math.abs(value % 1) > 0.001 ? 2 : 0,
     maximumFractionDigits: 2,
   })}`;
+
+const formatSignedAdjustmentValue = (value: number, type: DraftAdjustmentType) => {
+  const sign = value >= 0 ? '+' : '-';
+  const absoluteValue = Math.abs(value);
+
+  if (type === 'amount') {
+    return `${sign}${formatCurrency(absoluteValue)}`;
+  }
+
+  return `${sign}${formatNumber(absoluteValue)} 人天`;
+};
 
 const nowText = () => {
   const now = new Date();
@@ -241,22 +260,97 @@ const createDraftRowsFromLevelThree = (records: CapacityRecord[]): DraftLevelFou
             };
           });
           const level3Days = roundValue(dailyRows.reduce((sum, item) => sum + item.level3Days, 0));
+          const recognizedAdjustment = findRecognizedLevelFourAdjustment(record.id, member.name, month, template.position);
+          let recognizedDailyRows = dailyRows;
+          let level4Days = level3Days;
+          let amount = roundValue(level3Days * unitPrice);
+          let modified = false;
+          const adjustmentHistory: DraftAdjustmentRecord[] = [];
+
+          if (recognizedAdjustment?.dailyAdjustments?.length) {
+            const adjustmentMap = new Map(recognizedAdjustment.dailyAdjustments.map((item) => [item.date, item]));
+            recognizedDailyRows = dailyRows.map((dailyRow) => {
+              const matchedAdjustment = adjustmentMap.get(dailyRow.date);
+
+              if (!matchedAdjustment) {
+                return dailyRow;
+              }
+
+              const nextLevel4Days = roundValue(Math.max(0, dailyRow.level3Days + matchedAdjustment.delta));
+              modified = true;
+
+              return {
+                ...dailyRow,
+                level4Days: nextLevel4Days,
+                amount: roundValue(nextLevel4Days * unitPrice),
+              };
+            });
+            level4Days = roundValue(recognizedDailyRows.reduce((sum, item) => sum + item.level4Days, 0));
+            amount = roundValue(level4Days * unitPrice);
+            adjustmentHistory.push({
+              id: `${record.id}-${member.name}-${month}-daily-recognized`,
+              type: 'daily',
+              beforeValue: level3Days,
+              afterValue: level4Days,
+              reason: recognizedAdjustment.reason,
+              time: '确认单识别回填',
+              operator: '系统识别',
+            });
+          } else if (typeof recognizedAdjustment?.capacityDelta === 'number') {
+            level4Days = roundValue(Math.max(0, level3Days + recognizedAdjustment.capacityDelta));
+            const redistributedCapacities = createDailyCapacities(level4Days, dailyRows.length);
+            recognizedDailyRows = dailyRows.map((dailyRow, index) => {
+              const nextLevel4Days = redistributedCapacities[index] ?? 0;
+              return {
+                ...dailyRow,
+                level4Days: nextLevel4Days,
+                amount: roundValue(nextLevel4Days * unitPrice),
+              };
+            });
+            amount = roundValue(level4Days * unitPrice);
+            modified = true;
+            adjustmentHistory.push({
+              id: `${record.id}-${member.name}-${month}-capacity-recognized`,
+              type: 'capacity',
+              beforeValue: level3Days,
+              afterValue: level4Days,
+              reason: recognizedAdjustment.reason,
+              time: '确认单识别回填',
+              operator: '系统识别',
+            });
+          }
+
+          if (typeof recognizedAdjustment?.amountDelta === 'number') {
+            const beforeAmount = amount;
+            amount = roundValue(amount + recognizedAdjustment.amountDelta);
+            modified = true;
+            adjustmentHistory.unshift({
+              id: `${record.id}-${member.name}-${month}-amount-recognized`,
+              type: 'amount',
+              beforeValue: beforeAmount,
+              afterValue: amount,
+              reason: recognizedAdjustment.reason,
+              time: '确认单识别回填',
+              operator: '系统识别',
+            });
+          }
 
           return {
             id: `${record.id}-${template.position}-${member.name}-${month}`,
             sourceRecordId: record.id,
             sourceRecordNo: record.id,
             sourceGranularity,
+            project: record.project,
             member: member.name,
             position: template.position,
             month,
             level3Days,
-            level4Days: level3Days,
+            level4Days,
             unitPrice,
-            amount: roundValue(level3Days * unitPrice),
-            modified: false,
-            adjustmentHistory: [],
-            dailyRows,
+            amount,
+            modified,
+            adjustmentHistory,
+            dailyRows: recognizedDailyRows,
           };
         }),
       ),
@@ -275,10 +369,12 @@ const buildNextLevel4Id = (records: CapacityRecord[]) => {
 
 export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: LevelFourListPageProps) => {
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState<1 | 2>(1);
   const [selectedLevelThreeIds, setSelectedLevelThreeIds] = useState<string[]>([]);
   const [draftRows, setDraftRows] = useState<DraftLevelFourRow[]>([]);
   const [savedDraft, setSavedDraft] = useState<SavedDraftSnapshot | null>(null);
   const [pendingRestoreDraft, setPendingRestoreDraft] = useState<SavedDraftSnapshot | null>(null);
+  const [customerFilter, setCustomerFilter] = useState('');
   const [memberKeyword, setMemberKeyword] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
@@ -288,21 +384,39 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
   const [draftAdjustmentValue, setDraftAdjustmentValue] = useState('');
   const [draftAdjustmentReason, setDraftAdjustmentReason] = useState('');
   const [detailAdjustmentReason, setDetailAdjustmentReason] = useState('');
+  const [overallAmountAdjustment, setOverallAmountAdjustment] = useState('0');
+  const [overallAmountAdjustmentReason, setOverallAmountAdjustmentReason] = useState('');
+  const [overallAmountAdjustmentHistory, setOverallAmountAdjustmentHistory] = useState<DraftAdjustmentRecord[]>([]);
+  const [overallAmountAdjustmentModalOpen, setOverallAmountAdjustmentModalOpen] = useState(false);
+  const [draftOverallAmountAdjustmentValue, setDraftOverallAmountAdjustmentValue] = useState('');
+  const [draftOverallAmountAdjustmentReason, setDraftOverallAmountAdjustmentReason] = useState('');
 
   const approvedLevelThreeRecords = useMemo(() => LEVEL3_DATA.filter((item) => item.status === '已通过'), []);
+  const salesOwnedLevelThreeRecords = useMemo(
+    () => approvedLevelThreeRecords.filter((item) => item.handler === CURRENT_SALES_HANDLER),
+    [approvedLevelThreeRecords],
+  );
+  const customerOptions = useMemo(
+    () => Array.from(new Set(salesOwnedLevelThreeRecords.map((item) => item.customer))),
+    [salesOwnedLevelThreeRecords],
+  );
+  const filteredSelectableLevelThreeRecords = useMemo(
+    () => salesOwnedLevelThreeRecords.filter((item) => !customerFilter || item.customer === customerFilter),
+    [customerFilter, salesOwnedLevelThreeRecords],
+  );
 
   const selectedLevelThreeRecords = useMemo(
-    () => approvedLevelThreeRecords.filter((item) => selectedLevelThreeIds.includes(item.id)),
-    [approvedLevelThreeRecords, selectedLevelThreeIds],
+    () => salesOwnedLevelThreeRecords.filter((item) => selectedLevelThreeIds.includes(item.id)),
+    [salesOwnedLevelThreeRecords, selectedLevelThreeIds],
   );
 
   const draftSummary = useMemo(
     () => ({
       totalLevel3Days: roundValue(draftRows.reduce((sum, item) => sum + item.level3Days, 0)),
       totalLevel4Days: roundValue(draftRows.reduce((sum, item) => sum + item.level4Days, 0)),
-      totalAmount: roundValue(draftRows.reduce((sum, item) => sum + item.amount, 0)),
+      totalAmount: roundValue(draftRows.reduce((sum, item) => sum + item.amount, 0) + (Number(overallAmountAdjustment) || 0)),
     }),
-    [draftRows],
+    [draftRows, overallAmountAdjustment],
   );
 
   const positionOptions = useMemo(
@@ -330,8 +444,10 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
 
   const resetWizard = () => {
     setWizardOpen(false);
+    setWizardStep(1);
     setSelectedLevelThreeIds([]);
     setDraftRows([]);
+    setCustomerFilter('');
     setMemberKeyword('');
     setPositionFilter('');
     setMonthFilter('');
@@ -341,31 +457,50 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
     setDraftAdjustmentValue('');
     setDraftAdjustmentReason('');
     setDetailAdjustmentReason('');
+    setOverallAmountAdjustment('0');
+    setOverallAmountAdjustmentReason('');
+    setOverallAmountAdjustmentHistory([]);
+    setOverallAmountAdjustmentModalOpen(false);
+    setDraftOverallAmountAdjustmentValue('');
+    setDraftOverallAmountAdjustmentReason('');
   };
 
   const openWizard = () => {
     setWizardOpen(true);
     if (savedDraft) {
       setPendingRestoreDraft(savedDraft);
+      setWizardStep(savedDraft.draftRows.length ? 2 : 1);
       setSelectedLevelThreeIds(savedDraft.selectedLevelThreeIds);
+      setCustomerFilter(savedDraft.customerFilter);
       setMemberKeyword(savedDraft.memberKeyword);
       setPositionFilter(savedDraft.positionFilter);
       setMonthFilter(savedDraft.monthFilter);
       setQuickFilter(savedDraft.quickFilter);
+      setOverallAmountAdjustment(savedDraft.overallAmountAdjustment);
+      setOverallAmountAdjustmentReason(savedDraft.overallAmountAdjustmentReason);
+      setOverallAmountAdjustmentHistory(savedDraft.overallAmountAdjustmentHistory);
     } else {
       setPendingRestoreDraft(null);
+      setWizardStep(1);
       setSelectedLevelThreeIds([]);
       setDraftRows([]);
+      setCustomerFilter('');
       setMemberKeyword('');
       setPositionFilter('');
       setMonthFilter('');
       setQuickFilter('all');
+      setOverallAmountAdjustment('0');
+      setOverallAmountAdjustmentReason('');
+      setOverallAmountAdjustmentHistory([]);
     }
     setDetailRowId('');
     setAdjustmentModal(null);
     setDraftAdjustmentValue('');
     setDraftAdjustmentReason('');
     setDetailAdjustmentReason('');
+    setOverallAmountAdjustmentModalOpen(false);
+    setDraftOverallAmountAdjustmentValue('');
+    setDraftOverallAmountAdjustmentReason('');
   };
 
   useEffect(() => {
@@ -393,7 +528,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
 
     setAdjustmentModal({ rowId, type });
     setDraftAdjustmentReason('');
-    setDraftAdjustmentValue(String(type === 'capacity' ? currentRow.level4Days : currentRow.amount));
+    setDraftAdjustmentValue('0');
   };
 
   const closeAdjustmentModal = () => {
@@ -407,7 +542,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
       return;
     }
 
-    const nextValue = Math.max(0, Number(draftAdjustmentValue) || 0);
+    const deltaValue = Number(draftAdjustmentValue) || 0;
 
     setDraftRows((prev) =>
       prev.map((item) => {
@@ -416,6 +551,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
         }
 
         if (adjustmentModal.type === 'capacity') {
+          const nextValue = roundValue(Math.max(0, item.level4Days + deltaValue));
           const nextCapacities = createDailyCapacities(nextValue, item.dailyRows.length);
           const nextDailyRows = item.dailyRows.map((dailyRow, index) => {
             const level4Days = nextCapacities[index] ?? 0;
@@ -447,16 +583,18 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
           };
         }
 
+        const nextValue = roundValue(Math.max(0, item.amount + deltaValue));
+
         return {
           ...item,
-          amount: roundValue(nextValue),
+          amount: nextValue,
           modified: true,
           adjustmentHistory: [
             {
               id: `${item.id}-amount-${Date.now()}`,
               type: 'amount',
               beforeValue: item.amount,
-              afterValue: roundValue(nextValue),
+              afterValue: nextValue,
               reason: draftAdjustmentReason.trim(),
               time: nowText(),
               operator: '销售',
@@ -530,6 +668,43 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
     );
   };
 
+  const openOverallAmountAdjustmentModal = () => {
+    setDraftOverallAmountAdjustmentValue('0');
+    setDraftOverallAmountAdjustmentReason('');
+    setOverallAmountAdjustmentModalOpen(true);
+  };
+
+  const closeOverallAmountAdjustmentModal = () => {
+    setOverallAmountAdjustmentModalOpen(false);
+    setDraftOverallAmountAdjustmentValue('');
+    setDraftOverallAmountAdjustmentReason('');
+  };
+
+  const saveOverallAmountAdjustment = () => {
+    if (!draftOverallAmountAdjustmentReason.trim()) {
+      return;
+    }
+
+    const beforeValue = Number(overallAmountAdjustment) || 0;
+    const deltaValue = Number(draftOverallAmountAdjustmentValue) || 0;
+    const nextValue = roundValue(beforeValue + deltaValue);
+    setOverallAmountAdjustment(String(nextValue));
+    setOverallAmountAdjustmentReason(draftOverallAmountAdjustmentReason.trim());
+    setOverallAmountAdjustmentHistory((prev) => [
+      {
+        id: `overall-amount-${Date.now()}`,
+        type: 'amount',
+        beforeValue,
+        afterValue: nextValue,
+        reason: draftOverallAmountAdjustmentReason.trim(),
+        time: nowText(),
+        operator: '销售',
+      },
+      ...prev,
+    ]);
+    closeOverallAmountAdjustmentModal();
+  };
+
   const submitCreateRecord = () => {
     if (!selectedLevelThreeRecords.length || !draftRows.length) {
       return;
@@ -569,12 +744,28 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
     setSavedDraft({
       selectedLevelThreeIds,
       draftRows,
+      customerFilter,
       memberKeyword,
       positionFilter,
       monthFilter,
       quickFilter,
+      overallAmountAdjustment,
+      overallAmountAdjustmentReason,
+      overallAmountAdjustmentHistory,
       savedAt: nowText(),
     });
+  };
+
+  const goToNextStep = () => {
+    if (!selectedLevelThreeIds.length) {
+      return;
+    }
+
+    setWizardStep(2);
+  };
+
+  const goToPreviousStep = () => {
+    setWizardStep(1);
   };
 
   return (
@@ -603,7 +794,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
             <div className="shrink-0 flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
               <div>
                 <div className="text-base font-semibold text-on-surface">申请开票</div>
-                <div className="mt-1 text-xs text-on-surface-variant">选择三级产能批次后，系统自动汇总人员明细，生成一张待提交的四级开票申请单。</div>
+                <div className="mt-1 text-xs text-on-surface-variant">按两步完成申请开票：先选择当前销售负责客户的三级批次，再核对汇总结果并按增减量调整。</div>
               </div>
               <button
                 type="button"
@@ -615,27 +806,69 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
               </button>
             </div>
 
-            <div className="grid min-h-0 flex-1 overflow-hidden gap-0 lg:grid-cols-[0.9fr_1.1fr]">
-              <div className="flex min-h-0 flex-col border-r border-outline-variant">
+            <div className="shrink-0 border-b border-outline-variant bg-surface-container-low px-5 py-3">
+              <div className="flex items-center gap-3 text-xs">
+                <div className={`rounded-full px-3 py-1.5 ${wizardStep === 1 ? 'bg-primary text-white' : 'bg-white text-on-surface-variant border border-outline-variant'}`}>步骤1 选择批次</div>
+                <div className="h-px w-8 bg-outline-variant" />
+                <div className={`rounded-full px-3 py-1.5 ${wizardStep === 2 ? 'bg-primary text-white' : 'bg-white text-on-surface-variant border border-outline-variant'}`}>步骤2 汇总调整</div>
+              </div>
+            </div>
+
+            {wizardStep === 1 && (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="border-b border-outline-variant bg-surface-container-low px-5 py-3 text-sm text-on-surface-variant">
-                  仅展示已审核通过的三级产能批次，支持整行点击选择后汇总生成一张四级开票申请单。
+                  仅展示当前销售负责客户下已审核通过的三级产能批次。可先按客户筛选，再勾选批次进入下一步。
+                </div>
+                <div className="border-b border-outline-variant px-5 py-3">
+                  <div className="flex items-center gap-3 whitespace-nowrap overflow-x-auto custom-scrollbar">
+                    <div className="text-xs text-on-surface-variant">当前销售：{CURRENT_SALES_HANDLER}</div>
+                    <select
+                      value={customerFilter}
+                      onChange={(event) => setCustomerFilter(event.target.value)}
+                      className="admin-input h-9 w-[180px] shrink-0 px-3 text-sm"
+                    >
+                      <option value="">全部客户</option>
+                      {customerOptions.map((item) => (
+                        <option key={item} value={item}>{item}</option>
+                      ))}
+                    </select>
+                    <div className="text-xs text-on-surface-variant">已选 {selectedLevelThreeIds.length} 个批次</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 border-b border-outline-variant px-5 py-4 sm:grid-cols-3">
+                  <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                    <div className="text-xs text-on-surface-variant">当前可选批次</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">{filteredSelectableLevelThreeRecords.length} 个</div>
+                  </div>
+                  <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                    <div className="text-xs text-on-surface-variant">累计三级产能</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">{formatNumber(roundValue(filteredSelectableLevelThreeRecords.reduce((sum, item) => sum + item.workDays, 0)))} 人天</div>
+                  </div>
+                  <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                    <div className="text-xs text-on-surface-variant">累计三级金额</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(roundValue(filteredSelectableLevelThreeRecords.reduce((sum, item) => sum + item.amount, 0)))}</div>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-auto custom-scrollbar">
-                  <table className="w-full min-w-[920px] text-left border-collapse">
+                  <table className="w-full min-w-[1380px] text-left border-collapse">
                     <thead>
                       <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                         <th className="px-4 py-3">选择</th>
                         <th className="px-4 py-3">三级单号</th>
+                        <th className="px-4 py-3">所属周期</th>
                         <th className="px-4 py-3">客户</th>
                         <th className="px-4 py-3">合同</th>
+                        <th className="px-4 py-3">项目</th>
+                        <th className="px-4 py-3">分中心</th>
                         <th className="px-4 py-3">运营中心</th>
                         <th className="px-4 py-3">产能人天</th>
                         <th className="px-4 py-3">金额</th>
                         <th className="px-4 py-3">办理人</th>
+                        <th className="px-4 py-3">更新时间</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant text-sm">
-                      {approvedLevelThreeRecords.map((item) => {
+                      {filteredSelectableLevelThreeRecords.map((item) => {
                         const selected = selectedLevelThreeIds.includes(item.id);
 
                         return (
@@ -654,21 +887,32 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                               />
                             </td>
                             <td className="px-4 py-3 font-medium text-on-surface">{item.id}</td>
+                            <td className="px-4 py-3 text-on-surface-variant whitespace-nowrap">{item.period}</td>
                             <td className="px-4 py-3 text-on-surface-variant">{item.customer}</td>
                             <td className="px-4 py-3 text-on-surface-variant">{item.contract}</td>
+                            <td className="px-4 py-3 text-on-surface-variant">{item.project}</td>
+                            <td className="px-4 py-3 text-on-surface-variant">{item.subCenter}</td>
                             <td className="px-4 py-3 text-on-surface-variant">{item.operationCenter}</td>
                             <td className="px-4 py-3 text-on-surface">{formatNumber(item.workDays)}</td>
                             <td className="px-4 py-3 text-on-surface">{formatCurrency(item.amount)}</td>
                             <td className="px-4 py-3 text-on-surface-variant">{item.handler}</td>
+                            <td className="px-4 py-3 text-on-surface-variant whitespace-nowrap">{item.updatedAt}</td>
                           </tr>
                         );
                       })}
+                      {!filteredSelectableLevelThreeRecords.length && (
+                        <tr>
+                          <td colSpan={12} className="px-4 py-12 text-center text-on-surface-variant">当前销售负责客户范围内暂无可选三级批次。</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
+            )}
 
-              <div className="flex min-h-0 flex-col">
+            {wizardStep === 2 && (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="grid grid-cols-2 gap-3 border-b border-outline-variant px-5 py-4 lg:grid-cols-4">
                   <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-2.5">
                     <div className="text-xs text-on-surface-variant">已选三级单</div>
@@ -686,6 +930,22 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                     <div className="text-xs text-on-surface-variant">四级金额</div>
                     <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(draftSummary.totalAmount)}</div>
                   </div>
+                </div>
+                <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4 flex-wrap">
+                  <div>
+                    <div className="text-sm font-semibold text-on-surface">汇总人员明细</div>
+                    <div className="mt-1 text-xs text-on-surface-variant">
+                      当前整体金额调整：{formatCurrency(Number(overallAmountAdjustment) || 0)}
+                      {overallAmountAdjustmentReason ? `，最近原因：${overallAmountAdjustmentReason}` : '，未记录整体调整'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openOverallAmountAdjustmentModal}
+                    className="inline-flex items-center gap-1.5 rounded border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                  >
+                    调整总额
+                  </button>
                 </div>
                 <div className="border-b border-outline-variant px-5 py-3">
                   <div className="flex items-center justify-start gap-3 overflow-x-auto whitespace-nowrap custom-scrollbar">
@@ -744,10 +1004,11 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                   </div>
                 </div>
                 <div className="flex-1 overflow-auto custom-scrollbar px-5 py-4">
-                  <table className="w-full min-w-[980px] text-left border-collapse">
+                  <table className="w-full min-w-[1140px] text-left border-collapse">
                     <thead>
                       <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                         <th className="px-4 py-3">人员</th>
+                        <th className="px-4 py-3">所属项目</th>
                         <th className="px-4 py-3">合同岗位</th>
                         <th className="px-4 py-3">月份</th>
                         <th className="px-4 py-3">三级产能</th>
@@ -759,14 +1020,14 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                     <tbody className="divide-y divide-outline-variant text-sm">
                       {!draftRows.length && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-12 text-center text-on-surface-variant">
+                          <td colSpan={8} className="px-4 py-12 text-center text-on-surface-variant">
                             请先在左侧选择三级产能批次，再查看汇总人员明细。
                           </td>
                         </tr>
                       )}
                       {!!draftRows.length && !filteredDraftRows.length && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-12 text-center text-on-surface-variant">
+                          <td colSpan={8} className="px-4 py-12 text-center text-on-surface-variant">
                             当前筛选条件下暂无符合条件的人员明细。
                           </td>
                         </tr>
@@ -774,6 +1035,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                       {filteredDraftRows.map((item) => (
                         <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
                           <td className="px-4 py-3 font-medium text-on-surface">{item.member}</td>
+                          <td className="px-4 py-3 text-on-surface-variant">{item.project}</td>
                           <td className="px-4 py-3 text-on-surface-variant">{item.position}</td>
                           <td className="px-4 py-3 text-on-surface-variant">{item.month}</td>
                           <td className="px-4 py-3 text-on-surface">{formatNumber(item.level3Days)}</td>
@@ -813,7 +1075,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                   </table>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className="shrink-0 border-t border-outline-variant bg-white/95 px-5 py-4 backdrop-blur">
               <div className="flex flex-col items-center gap-3">
@@ -837,17 +1099,141 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                   <Save className="w-3.5 h-3.5" />
                   保存
                 </button>
-                <button
-                  type="button"
-                  onClick={submitCreateRecord}
-                  disabled={!draftRows.length}
-                  className="inline-flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  申请开票
-                </button>
+                {wizardStep === 2 && (
+                  <button
+                    type="button"
+                    onClick={goToPreviousStep}
+                    className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                  >
+                    上一步
+                  </button>
+                )}
+                {wizardStep === 1 ? (
+                  <button
+                    type="button"
+                    onClick={goToNextStep}
+                    disabled={!selectedLevelThreeIds.length}
+                    className="inline-flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+                  >
+                    下一步
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={submitCreateRecord}
+                    disabled={!draftRows.length}
+                    className="inline-flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    申请开票
+                  </button>
+                )}
               </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {overallAmountAdjustmentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6" onClick={closeOverallAmountAdjustmentModal}>
+          <div
+            className="flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">调整总额</div>
+                <div className="mt-1 text-xs text-on-surface-variant">用于处理不能归属到具体产能人员的金额，本次填写金额增减量并记录原因。</div>
+              </div>
+              <button
+                type="button"
+                onClick={closeOverallAmountAdjustmentModal}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm text-on-surface">
+                当前四级金额：{formatCurrency(draftSummary.totalAmount)}
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-on-surface-variant">金额调整增减量</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={draftOverallAmountAdjustmentValue}
+                  onChange={(event) => setDraftOverallAmountAdjustmentValue(event.target.value)}
+                  className="admin-input h-10 w-full px-3 text-sm"
+                />
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  当前整体调整：{formatCurrency(Number(overallAmountAdjustment) || 0)}，调整后：
+                  {formatCurrency(roundValue((Number(overallAmountAdjustment) || 0) + (Number(draftOverallAmountAdjustmentValue) || 0)))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-on-surface-variant">调整原因</div>
+                <input
+                  type="text"
+                  value={draftOverallAmountAdjustmentReason}
+                  onChange={(event) => setDraftOverallAmountAdjustmentReason(event.target.value)}
+                  placeholder="请填写整体金额调整原因"
+                  className="admin-input h-10 w-full px-3 text-sm"
+                />
+              </div>
+              <div className="rounded-xl border border-outline-variant bg-white">
+                <div className="border-b border-outline-variant px-4 py-3 text-sm font-medium text-on-surface">调整记录</div>
+                <div className="max-h-[280px] overflow-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
+                        <th className="px-4 py-3">时间</th>
+                        <th className="px-4 py-3">调整量</th>
+                        <th className="px-4 py-3">调整前</th>
+                        <th className="px-4 py-3">调整后</th>
+                        <th className="px-4 py-3">调整原因</th>
+                        <th className="px-4 py-3">操作人</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant text-sm">
+                      {!overallAmountAdjustmentHistory.length && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
+                        </tr>
+                      )}
+                      {overallAmountAdjustmentHistory.map((item) => (
+                        <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
+                          <td className="px-4 py-3 text-on-surface-variant">{item.time}</td>
+                          <td className="px-4 py-3 text-on-surface">{formatSignedAdjustmentValue(roundValue(item.afterValue - item.beforeValue), 'amount')}</td>
+                          <td className="px-4 py-3 text-on-surface">{formatCurrency(item.beforeValue)}</td>
+                          <td className="px-4 py-3 text-on-surface">{formatCurrency(item.afterValue)}</td>
+                          <td className="px-4 py-3 text-on-surface-variant">{item.reason}</td>
+                          <td className="px-4 py-3 text-on-surface-variant">{item.operator}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={closeOverallAmountAdjustmentModal}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={saveOverallAmountAdjustment}
+                disabled={!draftOverallAmountAdjustmentReason.trim()}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                保存调整
+              </button>
             </div>
           </div>
         </div>
@@ -856,7 +1242,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
       {adjustmentModal && currentAdjustmentRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6" onClick={closeAdjustmentModal}>
           <div
-            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            className="flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
@@ -889,15 +1275,20 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                 </div>
               </div>
               <div>
-                <div className="mb-1 text-xs text-on-surface-variant">{adjustmentModal.type === 'capacity' ? '调整后四级产能' : '调整后金额'}</div>
+                <div className="mb-1 text-xs text-on-surface-variant">{adjustmentModal.type === 'capacity' ? '产能调整增减量' : '金额调整增减量'}</div>
                 <input
                   type="number"
-                  min="0"
                   step={adjustmentModal.type === 'capacity' ? '0.5' : '0.01'}
                   value={draftAdjustmentValue}
                   onChange={(event) => setDraftAdjustmentValue(event.target.value)}
                   className="admin-input h-10 w-full px-3 text-sm"
                 />
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  当前值：{adjustmentModal.type === 'capacity' ? `${formatNumber(currentAdjustmentRow.level4Days)} 人天` : formatCurrency(currentAdjustmentRow.amount)}，调整后：
+                  {adjustmentModal.type === 'capacity'
+                    ? `${formatNumber(roundValue(Math.max(0, currentAdjustmentRow.level4Days + (Number(draftAdjustmentValue) || 0))))} 人天`
+                    : formatCurrency(roundValue(Math.max(0, currentAdjustmentRow.amount + (Number(draftAdjustmentValue) || 0))))}
+                </div>
               </div>
               <div>
                 <div className="mb-1 text-xs text-on-surface-variant">调整原因</div>
@@ -917,6 +1308,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                       <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                         <th className="px-4 py-3">时间</th>
                         <th className="px-4 py-3">类型</th>
+                        <th className="px-4 py-3">调整量</th>
                         <th className="px-4 py-3">调整前</th>
                         <th className="px-4 py-3">调整后</th>
                         <th className="px-4 py-3">原因</th>
@@ -925,13 +1317,14 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                     <tbody className="divide-y divide-outline-variant text-sm">
                       {!currentAdjustmentRow.adjustmentHistory.length && (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
+                          <td colSpan={6} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
                         </tr>
                       )}
                       {currentAdjustmentRow.adjustmentHistory.map((item) => (
                         <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
                           <td className="px-4 py-3 text-on-surface-variant">{item.time}</td>
                           <td className="px-4 py-3 text-on-surface">{item.type === 'capacity' ? '调整产能' : item.type === 'amount' ? '调整金额' : '日明细调整'}</td>
+                          <td className="px-4 py-3 text-on-surface">{formatSignedAdjustmentValue(roundValue(item.afterValue - item.beforeValue), item.type)}</td>
                           <td className="px-4 py-3 text-on-surface">{item.type === 'amount' ? formatCurrency(item.beforeValue) : `${formatNumber(item.beforeValue)} 人天`}</td>
                           <td className="px-4 py-3 text-on-surface">{item.type === 'amount' ? formatCurrency(item.afterValue) : `${formatNumber(item.afterValue)} 人天`}</td>
                           <td className="px-4 py-3 text-on-surface-variant">{item.reason}</td>
@@ -1059,6 +1452,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                       <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                         <th className="px-4 py-3">时间</th>
                         <th className="px-4 py-3">类型</th>
+                        <th className="px-4 py-3">调整量</th>
                         <th className="px-4 py-3">调整前</th>
                         <th className="px-4 py-3">调整后</th>
                         <th className="px-4 py-3">原因</th>
@@ -1067,13 +1461,14 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                     <tbody className="divide-y divide-outline-variant text-sm">
                       {!detailRow.adjustmentHistory.length && (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
+                          <td colSpan={6} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
                         </tr>
                       )}
                       {detailRow.adjustmentHistory.map((item) => (
                         <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
                           <td className="px-4 py-3 text-on-surface-variant">{item.time}</td>
                           <td className="px-4 py-3 text-on-surface">{item.type === 'capacity' ? '调整产能' : item.type === 'amount' ? '调整金额' : '日明细调整'}</td>
+                          <td className="px-4 py-3 text-on-surface">{formatSignedAdjustmentValue(roundValue(item.afterValue - item.beforeValue), item.type)}</td>
                           <td className="px-4 py-3 text-on-surface">{item.type === 'amount' ? formatCurrency(item.beforeValue) : `${formatNumber(item.beforeValue)} 人天`}</td>
                           <td className="px-4 py-3 text-on-surface">{item.type === 'amount' ? formatCurrency(item.afterValue) : `${formatNumber(item.afterValue)} 人天`}</td>
                           <td className="px-4 py-3 text-on-surface-variant">{item.reason}</td>
