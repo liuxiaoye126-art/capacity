@@ -6,6 +6,7 @@ import {
   Eye,
   FileSpreadsheet,
   History,
+  RefreshCw,
   RotateCcw,
   Save,
   Send,
@@ -703,6 +704,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [dailyDetailFilter, setDailyDetailFilter] = useState<DailyDetailFilter>('all');
   const [dailyLevel3DraftValues, setDailyLevel3DraftValues] = useState<Record<string, string>>({});
+  const [lastDataRefreshTime, setLastDataRefreshTime] = useState(record.updatedAt);
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const [memberKeyword, setMemberKeyword] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
@@ -731,7 +734,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const [dailyAdjustmentReasons, setDailyAdjustmentReasons] = useState<Record<string, string>>(() => initialState.dailyAdjustmentReasons);
   const [adjustmentHistoryMap, setAdjustmentHistoryMap] = useState<Record<string, AdjustmentRecord[]>>(() => initialState.adjustmentHistoryMap);
 
-  useEffect(() => {
+  const resetLevelThreeDetailState = () => {
     setPersonRows(initialPersonRows);
     setQuickFilter('all');
     setMemberKeyword('');
@@ -753,6 +756,12 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     setDraftTotalAdjustmentValue('');
     setDraftTotalAdjustmentReason('');
     setTotalAmountAdjustmentHistory([]);
+  };
+
+  useEffect(() => {
+    resetLevelThreeDetailState();
+    setLastDataRefreshTime(record.updatedAt);
+    setRefreshConfirmOpen(false);
   }, [initialAdjustmentHistoryMap, initialDailyAdjustmentReasons, initialPersonRows, recognitionResults]);
 
   const selectedRecognitionResult = recognitionResults[0];
@@ -1173,6 +1182,17 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     closeTotalAmountAdjustmentModal();
   };
 
+  const handleConfirmRefreshData = () => {
+    if (!canEdit) {
+      setRefreshConfirmOpen(false);
+      return;
+    }
+
+    resetLevelThreeDetailState();
+    setLastDataRefreshTime(nowText());
+    setRefreshConfirmOpen(false);
+  };
+
   return (
     <div className="space-y-4">
       <div className="admin-card overflow-hidden">
@@ -1233,6 +1253,21 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           </div>
           <div><div className="text-xs text-on-surface-variant mb-1">客户确认产能/人天</div><div className="text-sm font-medium text-on-surface">{formatNumber(summary.workDays)}</div></div>
           <div><div className="text-xs text-on-surface-variant mb-1">客户确认金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(summary.amount)}</div></div>
+          <div>
+            <div className="text-xs text-on-surface-variant mb-1">数据刷新时间</div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="text-sm font-medium text-on-surface">{lastDataRefreshTime}</div>
+              <button
+                type="button"
+                onClick={() => setRefreshConfirmOpen(true)}
+                disabled={!canEdit}
+                className="inline-flex items-center gap-1.5 rounded border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:cursor-not-allowed disabled:border-outline-variant disabled:bg-surface-container-low disabled:text-on-surface-variant"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                刷新数据
+              </button>
+            </div>
+          </div>
         </div>
         <div className="border-t border-outline-variant bg-surface-container-low px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="text-xs text-on-surface-variant flex items-center gap-2">
@@ -1879,6 +1914,53 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {refreshConfirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={() => setRefreshConfirmOpen(false)}
+        >
+          <div
+            className="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">确认刷新数据</div>
+                <div className="mt-1 text-xs text-on-surface-variant">刷新后将按当前识别结果重新装载三级详情数据。</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRefreshConfirmOpen(false)}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="px-5 py-5 text-sm leading-6 text-on-surface">
+              如人员项目或级别有调整可刷新更新数据，数据刷新时间较长，是否确认刷新。
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setRefreshConfirmOpen(false)}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRefreshData}
+                className="inline-flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                确认刷新
+              </button>
             </div>
           </div>
         </div>

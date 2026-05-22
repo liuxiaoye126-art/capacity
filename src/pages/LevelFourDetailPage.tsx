@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, RotateCcw, Save, Send, Upload, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileSpreadsheet, RotateCcw, Save, Send, Upload, XCircle } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { MainFooterPortal } from '../components/layout/Shell';
 import { CapacityRecord, LEVEL3_DATA, normalizeApprovalStatus } from '../types';
@@ -742,6 +742,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   const [lastSavedAt, setLastSavedAt] = useState('');
   const [archiveConfirmModalOpen, setArchiveConfirmModalOpen] = useState(false);
   const [archiveCustomerSent, setArchiveCustomerSent] = useState(false);
+  const [previewInvoice, setPreviewInvoice] = useState<UploadedInvoiceItem | null>(null);
 
   const initialPersonRowMap = useMemo(
     () => new Map(initialPersonRows.map((item) => [item.id, item])),
@@ -775,6 +776,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     setLastSavedAt('');
     setArchiveConfirmModalOpen(false);
     setArchiveCustomerSent(false);
+    setPreviewInvoice(null);
   }, [initialAdjustmentHistoryMap, initialAmountOverrides, initialPersonRows, record]);
 
   const relatedLevelThreeBatches = useMemo(() => getRelatedLevelThreeBatches(record), [record]);
@@ -1245,6 +1247,14 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
     setInvoiceModalOpen(false);
   };
 
+  const openInvoicePreview = (invoice: UploadedInvoiceItem) => {
+    setPreviewInvoice(invoice);
+  };
+
+  const closeInvoicePreview = () => {
+    setPreviewInvoice(null);
+  };
+
   const handleSaveInvoice = () => {
     if (!pendingInvoiceForms.length) {
       return;
@@ -1272,6 +1282,30 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
       setCurrentInvoiceStatus(next.length ? '已上传发票' : '待上传发票');
       return next;
     });
+  };
+
+  const handleDownloadInvoiceOriginal = (invoice: UploadedInvoiceItem) => {
+    const fileContent = [
+      '发票原件下载',
+      `附件名称：${invoice.attachmentName}`,
+      `发票号码：${invoice.invoiceNumber}`,
+      `发票代码：${invoice.invoiceCode}`,
+      `开票日期：${invoice.invoiceDate}`,
+      `含税金额：${invoice.taxInclusiveAmount}`,
+      `税率：${invoice.taxRate}`,
+      `上传人：${invoice.uploadedBy}`,
+      `上传时间：${invoice.uploadedAt}`,
+    ].join('\r\n');
+
+    const blob = new Blob([fileContent], { type: 'application/pdf' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = invoice.attachmentName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
   };
 
   const openArchiveConfirmModal = () => {
@@ -1396,15 +1430,33 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                         <div className="text-sm font-semibold text-on-surface">发票 {String(index + 1).padStart(2, '0')}</div>
                         <div className="mt-1 text-xs text-on-surface-variant">附件：{item.attachmentName}</div>
                       </div>
-                      {canUploadInvoice && (
+                      <div className="flex items-center gap-3 flex-wrap">
                         <button
                           type="button"
-                          onClick={() => handleRemoveInvoice(item.id)}
-                          className="text-xs text-rose-600 hover:text-rose-700 transition-colors"
+                          onClick={() => openInvoicePreview(item)}
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
                         >
-                          删除
+                          <Eye className="w-3.5 h-3.5" />
+                          查看
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadInvoiceOriginal(item)}
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          下载
+                        </button>
+                        {canUploadInvoice && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveInvoice(item.id)}
+                            className="text-xs text-rose-600 hover:text-rose-700 transition-colors"
+                          >
+                            删除
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                       <div><div className="mb-1 text-xs text-on-surface-variant">发票号码</div><div className="text-sm font-medium text-on-surface">{item.invoiceNumber}</div></div>
@@ -2225,6 +2277,74 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                   确认上传
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewInvoice && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={closeInvoicePreview}
+        >
+          <div
+            className="flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">发票原件</div>
+                <div className="mt-1 text-xs text-on-surface-variant">支持查看和下载当前发票原件。</div>
+              </div>
+              <button
+                type="button"
+                onClick={closeInvoicePreview}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <div className="flex min-h-[360px] items-center justify-center rounded-2xl border border-dashed border-outline-variant bg-surface-container-low p-6">
+                <div className="flex flex-col items-center text-center">
+                  <FileSpreadsheet className="h-12 w-12 text-primary" />
+                  <div className="mt-4 text-sm font-medium text-on-surface">{previewInvoice.attachmentName}</div>
+                  <div className="mt-2 text-xs leading-5 text-on-surface-variant">
+                    当前原型提供发票原件预览占位，可用于业务评审时查看原件名称、号码、日期与金额信息。
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-outline-variant bg-white p-4">
+                <div className="text-sm font-semibold text-on-surface">发票信息</div>
+                <div className="mt-4 space-y-3 text-sm">
+                  <div><div className="mb-1 text-xs text-on-surface-variant">附件名称</div><div className="font-medium text-on-surface">{previewInvoice.attachmentName}</div></div>
+                  <div><div className="mb-1 text-xs text-on-surface-variant">发票号码</div><div className="font-medium text-on-surface">{previewInvoice.invoiceNumber}</div></div>
+                  <div><div className="mb-1 text-xs text-on-surface-variant">发票代码</div><div className="font-medium text-on-surface">{previewInvoice.invoiceCode}</div></div>
+                  <div><div className="mb-1 text-xs text-on-surface-variant">开票日期</div><div className="font-medium text-on-surface">{previewInvoice.invoiceDate}</div></div>
+                  <div><div className="mb-1 text-xs text-on-surface-variant">含税金额</div><div className="font-medium text-on-surface">{formatCurrency(Number(previewInvoice.taxInclusiveAmount) || 0)}</div></div>
+                  <div><div className="mb-1 text-xs text-on-surface-variant">税率</div><div className="font-medium text-on-surface">{previewInvoice.taxRate}</div></div>
+                  <div><div className="mb-1 text-xs text-on-surface-variant">上传人</div><div className="font-medium text-on-surface">{previewInvoice.uploadedBy}</div></div>
+                  <div><div className="mb-1 text-xs text-on-surface-variant">上传时间</div><div className="font-medium text-on-surface">{previewInvoice.uploadedAt}</div></div>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={closeInvoicePreview}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                关闭
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadInvoiceOriginal(previewInvoice)}
+                className="inline-flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                下载原件
+              </button>
             </div>
           </div>
         </div>
