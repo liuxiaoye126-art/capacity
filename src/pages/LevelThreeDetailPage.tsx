@@ -138,12 +138,17 @@ const granularityLabelMap: Record<AcceptanceGranularity, string> = {
 const QUARTER_MONTHS = ['1月', '2月', '3月'];
 
 const badgeColorMap: Record<string, string> = {
+  '初始化': 'bg-slate-100 text-slate-700',
   '待确认': 'bg-amber-100 text-amber-700',
   '待审核': 'bg-sky-100 text-sky-700',
   '已通过': 'bg-emerald-100 text-emerald-700',
 };
 
 const normalizeLevelThreeStatus = (status: string) => {
+  if (status === '初始化') {
+    return '初始化';
+  }
+
   if (status === '待审核') {
     return '待审核';
   }
@@ -527,6 +532,14 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
 };
 
 const createInitialLevelThreeState = (record: CapacityRecord): LevelThreeInitialState => {
+  if (record.status === '初始化') {
+    return {
+      personRows: [],
+      dailyAdjustmentReasons: {},
+      adjustmentHistoryMap: {},
+    };
+  }
+
   const baseRows = createDailyRows(record);
   const dailyAdjustmentReasons: Record<string, string> = {};
   const summaryTotals = new Map<string, { beforeValue: number; afterValue: number }>();
@@ -588,6 +601,14 @@ const createInitialLevelThreeState = (record: CapacityRecord): LevelThreeInitial
     dailyAdjustmentReasons,
     adjustmentHistoryMap,
   };
+};
+
+const getInitializationDescription = (record: CapacityRecord) => {
+  if (record.id === 'L3-2026Q1-010') {
+    return '刘晨的三级产能无对应的本合同下的一二级产能，请确认其项目履历。';
+  }
+
+  return '当前三级产能未完成初始化，请先核对人员项目履历和级别归属。';
 };
 
 const buildMonthlyRows = (rows: DailyCapacityRow[], amountOverrides: Record<string, number>): PersonMonthlyRow[] => {
@@ -897,10 +918,20 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   };
 
   const displayStatus = normalizeLevelThreeStatus(record.status);
+  const isInitialization = displayStatus === '初始化';
   const canEdit = displayStatus === '待确认';
   const canSubmit = displayStatus === '待确认';
   const canReview = displayStatus === '待审核';
   const acceptanceGranularity = getAcceptanceGranularity(record);
+  const initializationDescription = getInitializationDescription(record);
+
+  const displaySummary = isInitialization
+    ? {
+        ...summary,
+        workDays: record.workDays,
+        amount: record.amount,
+      }
+    : summary;
 
   const updatePersonRow = (id: string, value: string) => {
     if (value.trim() === '') {
@@ -1211,7 +1242,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 <span className="text-on-surface-variant">当前确认识别结果：</span>
                 <span className="font-medium text-on-surface">
                   {selectedRecognitionResult
-                    ? formatRecognitionBatchName(summary.workDays, summary.amount, selectedRecognitionResult.identifiedAt)
+                    ? formatRecognitionBatchName(displaySummary.workDays, displaySummary.amount, selectedRecognitionResult.identifiedAt)
                     : '--'}
                 </span>
                 <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${badgeColorMap[displayStatus] || 'bg-cyan-100 text-primary'}`}>
@@ -1251,8 +1282,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               </span>
             </div>
           </div>
-          <div><div className="text-xs text-on-surface-variant mb-1">客户确认产能/人天</div><div className="text-sm font-medium text-on-surface">{formatNumber(summary.workDays)}</div></div>
-          <div><div className="text-xs text-on-surface-variant mb-1">客户确认金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(summary.amount)}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">客户确认产能/人天</div><div className="text-sm font-medium text-on-surface">{formatNumber(displaySummary.workDays)}</div></div>
+          <div><div className="text-xs text-on-surface-variant mb-1">客户确认金额</div><div className="text-sm font-medium text-on-surface">{formatCurrency(displaySummary.amount)}</div></div>
           <div>
             <div className="text-xs text-on-surface-variant mb-1">数据刷新时间</div>
             <div className="flex items-center gap-3 flex-wrap">
@@ -1268,6 +1299,14 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               </button>
             </div>
           </div>
+          {isInitialization && (
+            <div className="md:col-span-2 lg:col-span-4">
+              <div className="text-xs text-on-surface-variant mb-1">初始化描述</div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {initializationDescription}
+              </div>
+            </div>
+          )}
         </div>
         <div className="border-t border-outline-variant bg-surface-container-low px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="text-xs text-on-surface-variant flex items-center gap-2">
@@ -1366,7 +1405,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 {!filteredPersonRows.length && (
                   <tr>
                     <td colSpan={12} className="px-4 py-10 text-center text-sm text-on-surface-variant">
-                      当前筛选条件下暂无符合条件的人员产能明细
+                      {isInitialization ? '初始化状态下暂无人员产能明细，请先核对项目履历后再继续处理。' : '当前筛选条件下暂无符合条件的人员产能明细'}
                     </td>
                   </tr>
                 )}
@@ -1428,6 +1467,31 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
       <MainFooterPortal>
         <div className="flex-shrink-0 flex items-center justify-center gap-1.5 px-5 py-3 text-sm bg-white border-t border-outline-variant">
           <div className="flex items-center justify-center gap-2 flex-wrap">
+            {isInitialization && (
+              <>
+                <button
+                  disabled
+                  className="flex items-center gap-1.5 rounded border border-outline-variant bg-surface-container-low px-4 py-2 text-sm text-on-surface-variant cursor-not-allowed"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  保存草稿
+                </button>
+                <button
+                  disabled
+                  className="flex items-center gap-1.5 rounded bg-surface-container-high px-4 py-2 text-sm font-medium text-on-surface-variant cursor-not-allowed"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  提交确认
+                </button>
+                <button
+                  disabled
+                  className="flex items-center gap-1.5 rounded border border-outline-variant bg-surface-container-low px-4 py-2 text-sm text-on-surface-variant cursor-not-allowed"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  撤销批次
+                </button>
+              </>
+            )}
             {canEdit && (
               <button className="flex items-center gap-1.5 rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors">
                 <Save className="w-3.5 h-3.5" />
@@ -1452,7 +1516,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 驳回
               </button>
             )}
-            {!canReview && (
+            {!canReview && !isInitialization && (
               <button className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors">
                 <XCircle className="w-3.5 h-3.5" />
                 撤销批次

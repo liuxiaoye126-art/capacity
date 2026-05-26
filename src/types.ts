@@ -359,6 +359,21 @@ export const LEVEL1_DATA: LevelOneRecord[] = [
 
 export const LEVEL3_DATA: CapacityRecord[] = [
   {
+    id: 'L3-2026Q1-010',
+    period: '2026Q1（1-3月）',
+    customer: '上海银行',
+    contract: '上海银行2026年度客户经营平台技术服务合同',
+    position: '高级',
+    project: '客户经营标签链路优化',
+    operationCenter: '上海运营中心',
+    subCenter: '信用卡分中心',
+    status: '初始化',
+    amount: 214500,
+    workDays: 132,
+    handler: '李晓燕',
+    updatedAt: '2026-04-08 16:40',
+  },
+  {
     id: 'L3-2026Q1-001',
     period: '2026Q1（1-3月）',
     customer: '上海银行',

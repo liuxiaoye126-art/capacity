@@ -13,6 +13,7 @@ interface LocalCapacityRecord extends CapacityRecord {
 }
 
 const statusColorMap: Record<string, string> = {
+  '初始化': 'bg-slate-100 text-slate-700',
   '待确认': 'bg-amber-100 text-amber-700',
   '待调整': 'bg-amber-100 text-amber-700',
   '待审核': 'bg-sky-100 text-sky-700',

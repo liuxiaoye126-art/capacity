@@ -24,7 +24,7 @@ export const CapacityFilter = ({ type, actions }: CapacityFilterProps) => {
   const showPeriodFilter = type === 'level3';
 
   const statusOptions = {
-    level3: ['全部状态', '待确认', '待审核', '已通过'],
+    level3: ['全部状态', '初始化', '待确认', '待审核', '已通过'],
     level4: ['全部状态', '待提交', '待审核', '待上传发票', '待归档', '已归档'],
     level5: ['全部状态', '回款中', '已回清'],
   }[type];
