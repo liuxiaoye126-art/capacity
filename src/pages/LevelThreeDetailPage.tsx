@@ -742,6 +742,10 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const [draftTotalAdjustmentValue, setDraftTotalAdjustmentValue] = useState('');
   const [draftTotalAdjustmentReason, setDraftTotalAdjustmentReason] = useState('');
   const [totalAmountAdjustmentHistory, setTotalAmountAdjustmentHistory] = useState<AdjustmentRecord[]>([]);
+  const [dailyRowAdjustmentHistory, setDailyRowAdjustmentHistory] = useState<
+    Record<string, Array<{ id: string; deltaValue: number; beforeValue: number; afterValue: number; reason: string; operator: string; time: string }>>
+  >({});
+  const [dailyAdjHistoryViewId, setDailyAdjHistoryViewId] = useState<string | null>(null);
   const recognitionResults = useMemo(() => createRecognitionResults(record), [record]);
   const initialState = useMemo(() => createInitialLevelThreeState(record), [record]);
   const initialPersonRows = useMemo(() => initialState.personRows, [initialState]);
@@ -777,6 +781,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     setDraftTotalAdjustmentValue('');
     setDraftTotalAdjustmentReason('');
     setTotalAmountAdjustmentHistory([]);
+    setDailyRowAdjustmentHistory({});
+    setDailyAdjHistoryViewId(null);
   };
 
   useEffect(() => {
@@ -904,6 +910,20 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
 
   const selectedMonthlyHasModifiedRows = selectedDailyRows.some((item) => item.modified);
 
+  // 日产能粒度下，有调整量但未填写原因的行
+  const dailyMissingReasonRows = useMemo(() => {
+    if (!selectedMonthlyRow || selectedMonthlyRow.sourceGranularity !== 'daily') return [];
+    return filteredDailyDetailRows.filter((item) => {
+      const initialLevel3Days = initialPersonRowMap.get(item.id)?.level3Days ?? 0;
+      const draftVal = dailyLevel3DraftValues[item.id];
+      const hasDelta =
+        draftVal !== undefined
+          ? draftVal.trim() !== ''
+          : Math.abs(item.level3Days - initialLevel3Days) > 0.001;
+      return hasDelta && !dailyAdjustmentReasons[item.id]?.trim();
+    });
+  }, [selectedMonthlyRow, filteredDailyDetailRows, dailyLevel3DraftValues, dailyAdjustmentReasons, initialPersonRowMap]);
+
   const targetWorkDays = useMemo(() => roundValue(monthlyRows.reduce((sum, item) => sum + item.level3Days, 0)), [monthlyRows]);
 
   const targetAmount = useMemo(() => roundValue(monthlyRows.reduce((sum, item) => sum + item.recognitionAmount, 0)), [monthlyRows]);
@@ -933,29 +953,17 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
       }
     : summary;
 
-  const updatePersonRow = (id: string, value: string) => {
-    if (value.trim() === '') {
+  const updatePersonRow = (id: string, deltaStr: string) => {
+    if (deltaStr.trim() === '') {
+      // 清空输入 = 撤销该行调整，恢复初始值
+      revertPersonRow(id);
       return;
     }
 
-    if (id) {
-      setDailyAdjustmentReasons((prev) => {
-        const currentValue = prev[id]?.trim();
-
-        if (currentValue) {
-          return prev;
-        }
-
-        return {
-          ...prev,
-          [id]: '三级确认',
-        };
-      });
-    }
+    const delta = Number(deltaStr) || 0;
 
     setPersonRows((prev) => {
       let matched = false;
-      const level3Days = Math.max(0, Number(value) || 0);
 
       const nextRows = prev.map((item) => {
         if (item.id !== id) {
@@ -963,12 +971,15 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
         }
 
         matched = true;
+        const initialRow = initialPersonRowMap.get(id);
+        const initialLevel3Days = initialRow?.level3Days ?? item.level1Days;
+        const level3Days = Math.max(0, roundValue(initialLevel3Days + delta));
 
         return {
           ...item,
           level3Days,
-          amount: Number((level3Days * item.systemUnitPrice).toFixed(2)),
-          modified: true,
+          amount: roundValue(level3Days * item.systemUnitPrice),
+          modified: Math.abs(level3Days - initialLevel3Days) > 0.001,
         };
       });
 
@@ -980,6 +991,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
       const baselineLevel1Days = baselineRow?.level1Days || 0;
       const baselineLevel2Days = baselineRow?.level2Days || 0;
       const recognitionLevel3Days = baselineRow?.recognitionLevel3Days || 0;
+      const level3Days = Math.max(0, roundValue(recognitionLevel3Days + delta));
 
       return [
         ...nextRows,
@@ -996,9 +1008,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           sourceGranularity: selectedMonthlyRow.sourceGranularity,
           systemUnitPrice: selectedMonthlyRow.systemUnitPrice,
           recognitionUnitPrice: selectedMonthlyRow.recognitionUnitPrice,
-          amount: Number((level3Days * selectedMonthlyRow.systemUnitPrice).toFixed(2)),
-          recognitionAmount: Number((recognitionLevel3Days * selectedMonthlyRow.recognitionUnitPrice).toFixed(2)),
-          modified: true,
+          amount: roundValue(level3Days * selectedMonthlyRow.systemUnitPrice),
+          recognitionAmount: roundValue(recognitionLevel3Days * selectedMonthlyRow.recognitionUnitPrice),
+          modified: Math.abs(level3Days - recognitionLevel3Days) > 0.001,
         },
       ];
     });
@@ -1026,12 +1038,56 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
 
     if (draftValue.trim() !== '') {
       updatePersonRow(id, draftValue);
+
+      // Save history entry if reason is already filled
+      const reason = dailyAdjustmentReasons[id]?.trim();
+      if (reason) {
+        const delta = Number(draftValue) || 0;
+        const existingRow = personRows.find((r) => r.id === id);
+        const initialLevel3Days = initialPersonRowMap.get(id)?.level3Days ?? (existingRow?.level1Days ?? 0);
+        const beforeValue = existingRow?.level3Days ?? initialLevel3Days;
+        const afterValue = Math.max(0, roundValue(initialLevel3Days + delta));
+        setDailyRowAdjustmentHistory((prev) => {
+          const history = prev[id] || [];
+          const last = history[0];
+          if (last && Math.abs(last.deltaValue - delta) < 0.001 && last.reason === reason) return prev;
+          return {
+            ...prev,
+            [id]: [
+              { id: `${id}-adj-${Date.now()}`, deltaValue: delta, beforeValue, afterValue, reason, operator: record.handler, time: nowText() },
+              ...history,
+            ],
+          };
+        });
+      }
     }
 
     setDailyLevel3DraftValues((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
+    });
+  };
+
+  const commitDailyAdjReason = (id: string) => {
+    const reason = dailyAdjustmentReasons[id]?.trim();
+    if (!reason) return;
+    const existingRow = personRows.find((r) => r.id === id);
+    const initialLevel3Days = initialPersonRowMap.get(id)?.level3Days ?? (existingRow?.level1Days ?? 0);
+    const currentLevel3Days = existingRow?.level3Days ?? initialLevel3Days;
+    const delta = roundValue(currentLevel3Days - initialLevel3Days);
+    if (Math.abs(delta) < 0.001) return;
+    setDailyRowAdjustmentHistory((prev) => {
+      const history = prev[id] || [];
+      const last = history[0];
+      if (last && Math.abs(last.deltaValue - delta) < 0.001 && last.reason === reason) return prev;
+      return {
+        ...prev,
+        [id]: [
+          { id: `${id}-adj-${Date.now()}`, deltaValue: delta, beforeValue: roundValue(initialLevel3Days), afterValue: roundValue(currentLevel3Days), reason, operator: record.handler, time: nowText() },
+          ...history,
+        ],
+      };
     });
   };
 
@@ -1104,6 +1160,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
       [dailyId]: value,
     }));
   };
+
+  // no-op stub kept for JSX reference — actual save happens in commitDailyAdjReason (onBlur)
+  const _commitDailyAdjReason = commitDailyAdjReason;
 
   const openAdjustmentModal = (summaryId: string, type: AdjustmentType) => {
     const currentRow = monthlyRows.find((item) => item.id === summaryId);
@@ -1574,12 +1633,18 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                     </button>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {[
-                      { key: 'all', label: '全部日期' },
-                      { key: 'workday', label: '仅工作日' },
-                      { key: 'diff', label: '仅看差异' },
-                      { key: 'modified', label: '仅看已修改' },
-                    ].map((option) => (
+                    {(selectedMonthlyRow.sourceGranularity === 'daily'
+                      ? [
+                          { key: 'all', label: '全部日期' },
+                          { key: 'workday', label: '仅工作日' },
+                          { key: 'diff', label: '仅看差异' },
+                          { key: 'modified', label: '仅看已修改' },
+                        ]
+                      : [
+                          { key: 'all', label: '全部日期' },
+                          { key: 'workday', label: '仅工作日' },
+                        ]
+                    ).map((option) => (
                       <button
                         key={option.key}
                         type="button"
@@ -1597,86 +1662,235 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 </div>
               </div>
             </div>
-            <div className="max-h-[75vh] overflow-y-auto custom-scrollbar px-5 py-4">
-              <table className="w-full table-fixed text-left border-collapse">
+            <div
+              className="overflow-auto custom-scrollbar px-5 py-4"
+              style={{ maxHeight: selectedMonthlyRow.sourceGranularity === 'daily' ? 'calc(75vh - 56px)' : '75vh' }}
+            >
+              <table
+                className={`w-full text-left border-collapse ${
+                  selectedMonthlyRow.sourceGranularity === 'daily'
+                    ? 'min-w-[860px]'
+                    : 'min-w-[540px] table-fixed'
+                }`}
+              >
                 <thead>
                   <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
-                    <th className="w-[18%] px-4 py-3">日期</th>
-                    <th className="w-[10%] px-4 py-3">一级产能</th>
-                    <th className="w-[10%] px-4 py-3">二级产能</th>
-                    <th className="w-[12%] px-4 py-3">识别三级产能</th>
-                    <th className="w-[14%] px-4 py-3 bg-amber-50 text-amber-700">三级产能（日拆分）</th>
-                    <th className="w-[20%] px-4 py-3">调整原因</th>
-                    <th className="w-[10%] px-4 py-3">金额</th>
-                    <th className="w-[6%] px-4 py-3">操作</th>
+                    <th className="px-4 py-3 w-[160px]">日期</th>
+                    <th className="px-4 py-3 w-[80px]">一级产能</th>
+                    <th className="px-4 py-3 w-[80px]">二级产能</th>
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[90px]">识别三级产能</th>
+                    )}
+                    <th
+                      className={`px-4 py-3 bg-amber-50 text-amber-700 ${
+                        selectedMonthlyRow.sourceGranularity === 'daily' ? 'w-[110px]' : 'w-[140px]'
+                      }`}
+                    >
+                      {selectedMonthlyRow.sourceGranularity === 'daily' ? '产能调整增减量' : '三级产能（日拆分）'}
+                    </th>
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[200px]">调整原因</th>
+                    )}
+                    <th className="px-4 py-3 w-[100px]">金额</th>
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[90px]">操作</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
                   {!filteredDailyDetailRows.length && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-sm text-on-surface-variant">
+                      <td
+                        colSpan={selectedMonthlyRow.sourceGranularity === 'daily' ? 8 : 5}
+                        className="px-4 py-8 text-center text-sm text-on-surface-variant"
+                      >
                         当前筛选条件下暂无日期明细
                       </td>
                     </tr>
                   )}
-                  {filteredDailyDetailRows.map((item) => (
-                    <tr key={item.id} className="hover:bg-surface-container-low/60 transition-colors">
-                      <td className="px-4 py-3.5 font-medium">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span>{item.date}</span>
-                          {!item.isWorkday && (
-                            <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-600">非工作日</span>
-                          )}
-                          <RowTags hasDiff={item.hasRecognitionDiff} modified={item.modified} />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">{formatNumber(item.level1Days)}</td>
-                      <td className="px-4 py-3.5">{formatNumber(item.level2Days)}</td>
-                      <td className="px-4 py-3.5">{formatNumber(item.recognitionLevel3Days)}</td>
-                      <td className="bg-amber-50/80 px-4 py-3.5">
-                        {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' ? (
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            value={dailyLevel3DraftValues[item.id] ?? String(item.level3Days)}
-                            onChange={(event) => updateDailyLevel3DraftValue(item.id, event.target.value)}
-                            onBlur={() => commitDailyLevel3DraftValue(item.id)}
-                            className="admin-input w-full border-amber-300 bg-white px-2.5 shadow-[0_0_0_2px_rgba(245,158,11,0.08)]"
-                          />
-                        ) : (
-                          formatNumber(item.level3Days)
-                        )}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' ? (
-                          <input
-                            type="text"
-                            value={dailyAdjustmentReasons[item.id] ?? ''}
-                            onChange={(event) => updateDailyAdjustmentReason(item.id, event.target.value)}
-                            placeholder="修改后自动带出“三级确认”"
-                            className="admin-input h-10 w-full px-2.5 text-xs"
-                          />
-                        ) : (
-                          <div className="truncate text-xs text-on-surface" title={dailyAdjustmentReasons[item.id] || '--'}>
-                            {dailyAdjustmentReasons[item.id] || '--'}
+                  {filteredDailyDetailRows.map((item) => {
+                    const initialLevel3Days = initialPersonRowMap.get(item.id)?.level3Days ?? 0;
+                    const currentDelta = roundValue(item.level3Days - initialLevel3Days);
+                    const deltaDisplayValue =
+                      dailyLevel3DraftValues[item.id] !== undefined
+                        ? dailyLevel3DraftValues[item.id]
+                        : currentDelta !== 0
+                          ? String(currentDelta)
+                          : '';
+                    const hasDeltaButNoReason =
+                      deltaDisplayValue.trim() !== '' && !dailyAdjustmentReasons[item.id]?.trim();
+                    return (
+                      <tr key={item.id} className="hover:bg-surface-container-low/60 transition-colors">
+                        <td className="px-4 py-3.5 font-medium">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>{item.date}</span>
+                            {!item.isWorkday && (
+                              <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-600">非工作日</span>
+                            )}
+                            {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                              <RowTags hasDiff={item.hasRecognitionDiff} modified={item.modified} />
+                            )}
                           </div>
+                        </td>
+                        <td className="px-4 py-3.5">{formatNumber(item.level1Days)}</td>
+                        <td className="px-4 py-3.5">{formatNumber(item.level2Days)}</td>
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5">{formatNumber(item.recognitionLevel3Days)}</td>
                         )}
-                      </td>
-                      <td className="px-4 py-3.5">{formatCurrency(item.amount)}</td>
-                      <td className="px-4 py-3.5">
-                        {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' && item.modified ? (
-                          <button
-                            type="button"
-                            onClick={() => revertPersonRow(item.id)}
-                            className="text-xs text-primary hover:text-primary/80 transition-colors"
-                          >
-                            撤销
-                          </button>
-                        ) : (
-                          <span className="text-xs text-on-surface-variant">--</span>
+                        <td className="bg-amber-50/80 px-4 py-3.5">
+                          {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' ? (
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={deltaDisplayValue}
+                              onChange={(event) => updateDailyLevel3DraftValue(item.id, event.target.value)}
+                              onBlur={() => commitDailyLevel3DraftValue(item.id)}
+                              placeholder="输入增减量"
+                              className={`admin-input w-full px-2.5 bg-white ${
+                                hasDeltaButNoReason
+                                  ? 'border-rose-400 shadow-[0_0_0_2px_rgba(239,68,68,0.12)]'
+                                  : 'border-amber-300 shadow-[0_0_0_2px_rgba(245,158,11,0.08)]'
+                              }`}
+                            />
+                          ) : (
+                            formatNumber(item.level3Days)
+                          )}
+                        </td>
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5">
+                            {canEdit ? (
+                              <input
+                                type="text"
+                                value={dailyAdjustmentReasons[item.id] ?? ''}
+                                onChange={(event) => updateDailyAdjustmentReason(item.id, event.target.value)}
+                                placeholder={hasDeltaButNoReason ? '请填写原因（必填）' : '填写调整原因'}
+                                className={`admin-input h-10 w-full px-2.5 text-xs ${
+                                  hasDeltaButNoReason ? 'border-rose-400' : ''
+                                }`}
+                                onBlur={() => _commitDailyAdjReason(item.id)}
+                              />
+                            ) : (
+                              <div
+                                className="truncate text-xs text-on-surface"
+                                title={dailyAdjustmentReasons[item.id] || '--'}
+                              >
+                                {dailyAdjustmentReasons[item.id] || '--'}
+                              </div>
+                            )}
+                          </td>
                         )}
-                      </td>
+                        <td className="px-4 py-3.5">{formatCurrency(item.amount)}</td>
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-3 whitespace-nowrap">
+                              {canEdit && item.modified && (
+                                <button
+                                  type="button"
+                                  onClick={() => revertPersonRow(item.id)}
+                                  className="text-xs text-primary hover:text-primary/80 transition-colors"
+                                >
+                                  撤销
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setDailyAdjHistoryViewId(item.id)}
+                                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors whitespace-nowrap"
+                              >
+                                调整记录
+                                {(dailyRowAdjustmentHistory[item.id]?.length ?? 0) > 0 && (
+                                  <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-white">
+                                    {dailyRowAdjustmentHistory[item.id].length}
+                                  </span>
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {selectedMonthlyRow.sourceGranularity === 'daily' && canEdit && (
+              <div className="flex items-center justify-between border-t border-outline-variant px-5 py-3">
+                <div className="text-xs">
+                  {dailyMissingReasonRows.length > 0 ? (
+                    <span className="text-rose-600">{dailyMissingReasonRows.length} 条调整缺少原因，请补充后再确认</span>
+                  ) : selectedDailyRows.some((r) => r.modified) ? (
+                    <span className="text-emerald-700">所有调整已填写原因，可以确认</span>
+                  ) : (
+                    <span className="text-on-surface-variant">暂无调整记录</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={dailyMissingReasonRows.length > 0}
+                  onClick={() => setSelectedMonthlyDetailId('')}
+                  className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+                >
+                  整体确认
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {dailyAdjHistoryViewId && selectedMonthlyRow && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={() => setDailyAdjHistoryViewId(null)}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">
+                  调整记录 — {filteredDailyDetailRows.find((r) => r.id === dailyAdjHistoryViewId)?.date ?? dailyAdjHistoryViewId}
+                </div>
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  {selectedMonthlyRow.member} · {selectedMonthlyRow.month} · 该日期下所有产能调整记录
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDailyAdjHistoryViewId(null)}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
+                    <th className="px-4 py-3">时间</th>
+                    <th className="px-4 py-3">调整量（人天）</th>
+                    <th className="px-4 py-3">调整前</th>
+                    <th className="px-4 py-3">调整后</th>
+                    <th className="px-4 py-3">原因</th>
+                    <th className="px-4 py-3">操作人</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant text-sm">
+                  {!(dailyRowAdjustmentHistory[dailyAdjHistoryViewId]?.length) && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-on-surface-variant">暂无调整记录</td>
+                    </tr>
+                  )}
+                  {(dailyRowAdjustmentHistory[dailyAdjHistoryViewId] || []).map((entry) => (
+                    <tr key={entry.id} className="hover:bg-surface-container-low transition-colors">
+                      <td className="px-4 py-3 text-on-surface-variant">{entry.time}</td>
+                      <td className="px-4 py-3 font-medium">{formatSignedNumber(entry.deltaValue)}</td>
+                      <td className="px-4 py-3">{formatNumber(entry.beforeValue)}</td>
+                      <td className="px-4 py-3">{formatNumber(entry.afterValue)}</td>
+                      <td className="px-4 py-3 text-on-surface-variant">{entry.reason}</td>
+                      <td className="px-4 py-3 text-on-surface-variant">{entry.operator}</td>
                     </tr>
                   ))}
                 </tbody>
