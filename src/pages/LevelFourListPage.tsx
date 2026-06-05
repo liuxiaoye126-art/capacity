@@ -832,25 +832,25 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                         <option key={item} value={item}>{item}</option>
                       ))}
                     </select>
-                    <div className="text-xs text-on-surface-variant">已选 {selectedLevelThreeIds.length} 个批次</div>
+                    <div className="text-xs text-on-surface-variant">当前可选批次：{filteredSelectableLevelThreeRecords.length} 个</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 border-b border-outline-variant px-5 py-4 sm:grid-cols-3">
                   <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
-                    <div className="text-xs text-on-surface-variant">当前可选批次</div>
-                    <div className="mt-1 text-sm font-semibold text-on-surface">{filteredSelectableLevelThreeRecords.length} 个</div>
+                    <div className="text-xs text-on-surface-variant">已选批次</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">{selectedLevelThreeIds.length} 个</div>
                   </div>
                   <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
-                    <div className="text-xs text-on-surface-variant">累计三级产能</div>
-                    <div className="mt-1 text-sm font-semibold text-on-surface">{formatNumber(roundValue(filteredSelectableLevelThreeRecords.reduce((sum, item) => sum + item.workDays, 0)))} 人天</div>
+                    <div className="text-xs text-on-surface-variant">已选汇总产能</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">{formatNumber(roundValue(selectedLevelThreeRecords.reduce((sum, item) => sum + item.workDays, 0)))} 人天</div>
                   </div>
                   <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
-                    <div className="text-xs text-on-surface-variant">累计三级金额</div>
-                    <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(roundValue(filteredSelectableLevelThreeRecords.reduce((sum, item) => sum + item.amount, 0)))}</div>
+                    <div className="text-xs text-on-surface-variant">已选汇总金额</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(roundValue(selectedLevelThreeRecords.reduce((sum, item) => sum + item.amount, 0)))}</div>
                   </div>
                 </div>
                 <div className="flex-1 overflow-auto custom-scrollbar">
-                  <table className="w-full min-w-[1380px] text-left border-collapse">
+                  <table className="w-full min-w-[1100px] text-left border-collapse">
                     <thead>
                       <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                         <th className="px-4 py-3">选择</th>
@@ -858,8 +858,6 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                         <th className="px-4 py-3">所属周期</th>
                         <th className="px-4 py-3">客户</th>
                         <th className="px-4 py-3">合同</th>
-                        <th className="px-4 py-3">项目</th>
-                        <th className="px-4 py-3">分中心</th>
                         <th className="px-4 py-3">运营中心</th>
                         <th className="px-4 py-3">产能人天</th>
                         <th className="px-4 py-3">金额</th>
@@ -890,8 +888,6 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                             <td className="px-4 py-3 text-on-surface-variant whitespace-nowrap">{item.period}</td>
                             <td className="px-4 py-3 text-on-surface-variant">{item.customer}</td>
                             <td className="px-4 py-3 text-on-surface-variant">{item.contract}</td>
-                            <td className="px-4 py-3 text-on-surface-variant">{item.project}</td>
-                            <td className="px-4 py-3 text-on-surface-variant">{item.subCenter}</td>
                             <td className="px-4 py-3 text-on-surface-variant">{item.operationCenter}</td>
                             <td className="px-4 py-3 text-on-surface">{formatNumber(item.workDays)}</td>
                             <td className="px-4 py-3 text-on-surface">{formatCurrency(item.amount)}</td>
@@ -902,7 +898,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                       })}
                       {!filteredSelectableLevelThreeRecords.length && (
                         <tr>
-                          <td colSpan={12} className="px-4 py-12 text-center text-on-surface-variant">当前销售负责客户范围内暂无可选三级批次。</td>
+                          <td colSpan={10} className="px-4 py-12 text-center text-on-surface-variant">当前销售负责客户范围内暂无可选三级批次。</td>
                         </tr>
                       )}
                     </tbody>

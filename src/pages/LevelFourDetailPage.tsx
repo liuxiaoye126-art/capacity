@@ -1348,7 +1348,17 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap justify-end" />
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={openTotalAdjustmentModal}
+                  className="flex items-center gap-1.5 rounded border border-outline-variant bg-white px-3 py-1.5 text-xs text-primary hover:bg-surface-container-low transition-colors"
+                >
+                  调整总额
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-x-8 gap-y-5 px-5 py-5 md:grid-cols-2 lg:grid-cols-3">
@@ -1630,23 +1640,15 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                     <div className="text-on-surface-variant">四级金额总计</div>
                     <div className="mt-1 font-medium">{formatCurrency(totalPositionSummary.level4Amount)}</div>
                   </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span>总金额调整：{formatCurrency(totalPositionSummary.adjustmentAmount)}</span>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={openTotalAdjustmentModal}
-                          className="rounded border border-outline-variant bg-white px-2.5 py-1 text-xs text-primary transition-colors hover:bg-surface-container-low"
-                        >
-                          调整
-                        </button>
-                      )}
-                    </div>
-                    {!!(totalAdjustmentTouched || totalAdjustmentReason) && <div>调整原因：{totalAdjustmentReason || '--'}</div>}
-                    <div>调整后四级金额：{formatCurrency(totalPositionSummary.adjustedLevel4Amount)}</div>
-                    <div className={totalPositionSummary.hasDiff ? 'text-amber-600' : 'text-emerald-600'}>
-                      {totalPositionSummary.hasDiff ? '当前总计与三级仍存在差异' : '总计已与三级一致'}
+                  <div>
+                    <div className="text-on-surface-variant">调整后四级金额</div>
+                    <div className="mt-1 font-medium">{formatCurrency(totalPositionSummary.adjustedLevel4Amount)}</div>
+                    <div className="mt-1 space-y-0.5 text-on-surface-variant">
+                      <div>总金额调整：{formatCurrency(totalPositionSummary.adjustmentAmount)}</div>
+                      {!!(totalAdjustmentTouched || totalAdjustmentReason) && <div>调整原因：{totalAdjustmentReason || '--'}</div>}
+                      <div className={totalPositionSummary.hasDiff ? 'text-amber-600' : 'text-emerald-600'}>
+                        {totalPositionSummary.hasDiff ? '当前总计与三级仍存在差异' : '总计已与三级一致'}
+                      </div>
                     </div>
                   </div>
                 </div>

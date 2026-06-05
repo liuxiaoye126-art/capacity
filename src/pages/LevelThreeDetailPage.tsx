@@ -1575,7 +1575,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 驳回
               </button>
             )}
-            {!canReview && !isInitialization && (
+            {!canReview && !isInitialization && displayStatus !== '已通过' && (
               <button className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors">
                 <XCircle className="w-3.5 h-3.5" />
                 撤销批次
