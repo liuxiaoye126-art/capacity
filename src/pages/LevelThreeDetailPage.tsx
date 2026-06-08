@@ -34,9 +34,14 @@ interface DailyCapacityRow {
   sourceGranularity: AcceptanceGranularity;
   position: string;
   member: string;
+  operationCenter: string;
+  bankBranch: string;
+  handler: string;
   level1Days: number;
   level2Days: number;
   level3Days: number;
+  normalHours: number;
+  overtimeHours: number;
   systemUnitPrice: number;
   recognitionUnitPrice: number;
   amount: number;
@@ -48,11 +53,16 @@ interface DailyDetailDisplayRow {
   id: string;
   date: string;
   isWorkday: boolean;
+  operationCenter: string;
+  bankBranch: string;
+  handler: string;
   level1Days: number;
   level2Days: number;
   recognitionLevel3Days: number;
   hasRecognitionDiff: boolean;
   level3Days: number;
+  normalHours: number;
+  overtimeHours: number;
   sourceGranularity: AcceptanceGranularity;
   systemUnitPrice: number;
   recognitionUnitPrice: number;
@@ -66,6 +76,9 @@ interface PersonMonthlyRow {
   month: string;
   position: string;
   member: string;
+  operationCenter: string;
+  bankBranch: string;
+  handler: string;
   sourceGranularity: AcceptanceGranularity;
   level1Days: number;
   level2Days: number;
@@ -85,7 +98,19 @@ interface PositionTemplate {
   members: Array<{
     name: string;
     monthlyDays: number[];
+    operationCenter?: string;
+    bankBranch?: string;
+    handler?: string;
   }>;
+}
+
+interface CenterConfirmStatus {
+  operationCenter: string;
+  status: '待确认' | '已确认';
+  confirmer: string;
+  confirmedAt: string;
+  workDays: number;
+  amount: number;
 }
 
 interface RecognitionLog {
@@ -143,6 +168,62 @@ const badgeColorMap: Record<string, string> = {
   '待审核': 'bg-sky-100 text-sky-700',
   '已通过': 'bg-emerald-100 text-emerald-700',
 };
+
+const CHINA_BANK_SPLIT_GROUPS = [
+  {
+    operationCenter: '上海运营中心',
+    branches: ['中行上海', '中行武汉'],
+    handlers: ['赵晨', '杨琳'],
+  },
+  {
+    operationCenter: '第三运营中心',
+    branches: ['中行珠海'],
+    handlers: ['王静'],
+  },
+  {
+    operationCenter: '第四运营中心',
+    branches: ['中行北京'],
+    handlers: ['李晓燕'],
+  },
+  {
+    operationCenter: '第五运营中心',
+    branches: ['中行深圳'],
+    handlers: ['陈敏'],
+  },
+  {
+    operationCenter: '第六运营中心',
+    branches: ['中行成都', '中行西安', '中行合肥'],
+    handlers: ['张楠', '王双银'],
+  },
+] as const;
+
+const CHINA_BANK_CENTER_CONFIRM_STATUS: Record<string, CenterConfirmStatus[]> = {
+  'L3-2026Q1-011': [
+    { operationCenter: '上海运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 182, amount: 246800 },
+    { operationCenter: '第三运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
+    { operationCenter: '第四运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
+    { operationCenter: '第五运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
+    { operationCenter: '第六运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 447, amount: 601600 },
+  ],
+  'L3-2026Q1-012': [
+    { operationCenter: '上海运营中心', status: '已确认', confirmer: '赵晨', confirmedAt: '2026-04-12 13:20', workDays: 182, amount: 246800 },
+    { operationCenter: '第三运营中心', status: '已确认', confirmer: '王静', confirmedAt: '2026-04-12 13:28', workDays: 91, amount: 123400 },
+    { operationCenter: '第四运营中心', status: '已确认', confirmer: '李晓燕', confirmedAt: '2026-04-12 13:35', workDays: 91, amount: 123400 },
+    { operationCenter: '第五运营中心', status: '已确认', confirmer: '陈敏', confirmedAt: '2026-04-12 13:42', workDays: 91, amount: 123400 },
+    { operationCenter: '第六运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 447, amount: 601600 },
+  ],
+};
+
+const CHINA_BANK_MOCK_MEMBERS = [
+  ['周子航', '孙雨桐'],
+  ['韩一鸣', '徐嘉宁'],
+  ['魏晨曦', '许安然'],
+  ['蒋明轩', '沈若溪'],
+  ['陆景川', '顾可欣'],
+  ['唐思远', '郑书瑶'],
+  ['高云帆', '罗静宜'],
+  ['梁知夏', '邵亦凡'],
+] as const;
 
 const normalizeLevelThreeStatus = (status: string) => {
   if (status === '初始化') {
@@ -400,7 +481,59 @@ const createRecognitionLevel3Value = (date: string, baseDays: number, member: st
 const createRecognitionReason = (deltaValue: number) =>
   deltaValue > 0 ? '确认单识别：客户补录产能，系统已自动回填。' : '确认单识别：客户扣减产能，系统已自动回填。';
 
+const createChinaBankHours = (date: string, isWorkday: boolean, member: string, branch: string) => {
+  const day = Number(date.match(/月(\d{2})日/)?.[1] || '1');
+  const seed = Array.from(`${member}-${branch}`).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+
+  if (isWorkday) {
+    const overtimeHours = [0.5, 1, 1.5, 2][(seed + day) % 4];
+    return {
+      normalHours: 8,
+      overtimeHours,
+    };
+  }
+
+  const overtimeHours = [2, 3, 4, 5][(seed + day) % 4];
+  return {
+    normalHours: 0,
+    overtimeHours,
+  };
+};
+
 const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
+  if (record.customer === '中国银行') {
+    let memberSeed = 0;
+
+    return CHINA_BANK_SPLIT_GROUPS.flatMap((group, centerIndex) =>
+      group.branches.map((branch, branchIndex) => {
+        const handler = group.handlers[(centerIndex + branchIndex) % group.handlers.length];
+        const memberPair = CHINA_BANK_MOCK_MEMBERS[memberSeed % CHINA_BANK_MOCK_MEMBERS.length];
+        memberSeed += 1;
+
+        return {
+          position: centerIndex % 2 === 0 ? '高级' : '中级',
+          targetDays: 180,
+          members: [
+            {
+              name: memberPair[0],
+              monthlyDays: [20, 21, 20],
+              operationCenter: group.operationCenter,
+              bankBranch: branch,
+              handler,
+            },
+            {
+              name: memberPair[1],
+              monthlyDays: [19, 20, 21],
+              operationCenter: group.operationCenter,
+              bankBranch: branch,
+              handler,
+            },
+          ],
+        };
+      }),
+    );
+  }
+
   if (record.customer === '上海银行') {
     return [
       {
@@ -494,18 +627,30 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
   const systemUnitPrice = roundValue(record.amount / record.workDays);
   const periodYear = getPeriodYear(record.period);
   const sourceGranularity = getAcceptanceGranularity(record);
+  const isChinaBank = record.customer === '中国银行';
 
   return createTemplates(record).flatMap((item) =>
     item.members.flatMap((member, memberIndex) =>
       QUARTER_MONTHS.flatMap((month, monthIndex) => {
         const summaryId = `${record.id}-${item.position}-member-${memberIndex + 1}-${month}`;
         const monthNumber = monthIndex + 1;
-        const workdayDates = createWorkdayDates(periodYear, monthNumber);
-        const dailyCapacities = createDailyCapacities(member.monthlyDays[monthIndex] ?? 0, workdayDates.length);
+        const monthDates = isChinaBank
+          ? createMonthDates(periodYear, monthNumber)
+          : createWorkdayDates(periodYear, monthNumber).map((date) => ({ date, isWorkday: true }));
+        const dailyCapacities = createDailyCapacities(member.monthlyDays[monthIndex] ?? 0, monthDates.length);
         const recognitionUnitPrice = createRecognitionUnitPrice(systemUnitPrice, member.name, item.position);
+        const operationCenter = member.operationCenter || record.operationCenter;
+        const bankBranch = member.bankBranch || record.subCenter;
+        const handler = member.handler || record.handler;
 
-        return workdayDates.map((date, dayIndex) => {
-          const level3Days = dailyCapacities[dayIndex] ?? 0;
+        return monthDates.map(({ date, isWorkday }, dayIndex) => {
+          const dayCapacity = dailyCapacities[dayIndex] ?? 0;
+          const hourProfile = isChinaBank
+            ? createChinaBankHours(date, isWorkday, member.name, bankBranch)
+            : { normalHours: roundValue(dayCapacity * 8), overtimeHours: 0 };
+          const level3Days = isChinaBank
+            ? roundValue((hourProfile.normalHours + hourProfile.overtimeHours) / 8)
+            : dayCapacity;
           const recognitionLevel3Days = createRecognitionLevel3Value(date, level3Days, member.name);
 
           return {
@@ -516,9 +661,14 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
             sourceGranularity,
             position: item.position,
             member: member.name,
+            operationCenter,
+            bankBranch,
+            handler,
             level1Days: level3Days,
             level2Days: level3Days,
             level3Days,
+            normalHours: hourProfile.normalHours,
+            overtimeHours: hourProfile.overtimeHours,
             systemUnitPrice,
             recognitionUnitPrice,
             amount: roundValue(level3Days * systemUnitPrice),
@@ -632,6 +782,9 @@ const buildMonthlyRows = (rows: DailyCapacityRow[], amountOverrides: Record<stri
       month: item.month,
       position: item.position,
       member: item.member,
+      operationCenter: item.operationCenter,
+      bankBranch: item.bankBranch,
+      handler: item.handler,
       sourceGranularity: item.sourceGranularity,
       level1Days: item.level1Days,
       level2Days: item.level2Days,
@@ -722,6 +875,14 @@ const SectionTitle = ({ title, extra }: { title: string; extra?: React.ReactNode
 );
 
 export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPageProps) => {
+  const isChinaBank = record.customer === '中国银行';
+  const displayStatus = normalizeLevelThreeStatus(record.status);
+  const isInitialization = displayStatus === '初始化';
+  const canEdit = displayStatus === '待确认';
+  const canSubmit = displayStatus === '待确认';
+  const canReview = displayStatus === '待审核';
+  const currentDeliveryHandler = isChinaBank ? '赵晨' : record.handler;
+
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [dailyDetailFilter, setDailyDetailFilter] = useState<DailyDetailFilter>('all');
   const [dailyLevel3DraftValues, setDailyLevel3DraftValues] = useState<Record<string, string>>({});
@@ -730,6 +891,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const [memberKeyword, setMemberKeyword] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
+  const [operationCenterFilter, setOperationCenterFilter] = useState('');
+  const [bankBranchFilter, setBankBranchFilter] = useState('');
   const [selectedMonthlyDetailId, setSelectedMonthlyDetailId] = useState('');
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [recognitionLogsOpen, setRecognitionLogsOpen] = useState(false);
@@ -765,6 +928,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     setMemberKeyword('');
     setPositionFilter('');
     setMonthFilter('');
+    setOperationCenterFilter('');
+    setBankBranchFilter('');
     setSelectedMonthlyDetailId('');
     setRecognitionLogsOpen(false);
     setLogsExpanded(false);
@@ -795,6 +960,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
 
   const monthlyRows = useMemo(() => buildMonthlyRows(personRows, amountOverrides), [amountOverrides, personRows]);
 
+  const centerConfirmStatus = useMemo(() => CHINA_BANK_CENTER_CONFIRM_STATUS[record.id] || [], [record.id]);
+  const allCentersConfirmed = centerConfirmStatus.length > 0 && centerConfirmStatus.every((item) => item.status === '已确认');
+
   const filteredPersonRows = useMemo(
     () =>
       monthlyRows.filter((item) => {
@@ -802,14 +970,38 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
         const matchedMember = !memberKeyword.trim() || item.member.includes(memberKeyword.trim());
         const matchedPosition = !positionFilter || item.position === positionFilter;
         const matchedMonth = !monthFilter || item.month === monthFilter;
+        const matchedCenter = !operationCenterFilter || item.operationCenter === operationCenterFilter;
+        const matchedBranch = !bankBranchFilter || item.bankBranch === bankBranchFilter;
+        const matchedCurrentHandler = !(isChinaBank && canEdit) || item.handler === currentDeliveryHandler;
 
-        return matchedQuickFilter && matchedMember && matchedPosition && matchedMonth;
+        return matchedQuickFilter && matchedMember && matchedPosition && matchedMonth && matchedCenter && matchedBranch && matchedCurrentHandler;
       }),
-    [memberKeyword, monthFilter, monthlyRows, positionFilter, quickFilter],
+    [
+      bankBranchFilter,
+      canEdit,
+      currentDeliveryHandler,
+      isChinaBank,
+      memberKeyword,
+      monthFilter,
+      monthlyRows,
+      operationCenterFilter,
+      positionFilter,
+      quickFilter,
+    ],
   );
 
   const positionOptions = useMemo(
     () => Array.from(new Set(monthlyRows.map((item) => item.position))),
+    [monthlyRows],
+  );
+
+  const operationCenterOptions = useMemo(
+    () => Array.from(new Set(monthlyRows.map((item) => item.operationCenter))),
+    [monthlyRows],
+  );
+
+  const bankBranchOptions = useMemo(
+    () => Array.from(new Set(monthlyRows.map((item) => item.bankBranch))),
     [monthlyRows],
   );
 
@@ -852,6 +1044,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           id: existing.id,
           date: existing.date,
           isWorkday,
+          operationCenter: existing.operationCenter,
+          bankBranch: existing.bankBranch,
+          handler: existing.handler,
           level1Days: existing.level1Days,
           level2Days: existing.level2Days,
           recognitionLevel3Days,
@@ -859,6 +1054,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
             Math.abs(recognitionLevel3Days - existing.level1Days) > 0.01 ||
             Math.abs(recognitionLevel3Days - existing.level2Days) > 0.01,
           level3Days: existing.level3Days,
+          normalHours: existing.normalHours,
+          overtimeHours: existing.overtimeHours,
           sourceGranularity: existing.sourceGranularity,
           systemUnitPrice: existing.systemUnitPrice,
           recognitionUnitPrice: existing.recognitionUnitPrice,
@@ -872,11 +1069,16 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
         id: `${selectedMonthlyRow.id}-${date}`,
         date,
         isWorkday,
+        operationCenter: selectedMonthlyRow.operationCenter,
+        bankBranch: selectedMonthlyRow.bankBranch,
+        handler: selectedMonthlyRow.handler,
         level1Days: 0,
         level2Days: 0,
         recognitionLevel3Days,
         hasRecognitionDiff: Math.abs(recognitionLevel3Days) > 0.01,
         level3Days: 0,
+        normalHours: 0,
+        overtimeHours: 0,
         sourceGranularity: selectedMonthlyRow.sourceGranularity,
         systemUnitPrice: selectedMonthlyRow.systemUnitPrice,
         recognitionUnitPrice: selectedMonthlyRow.recognitionUnitPrice,
@@ -937,11 +1139,6 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     amount: roundValue(targetAmount + totalAmountAdjustment),
   };
 
-  const displayStatus = normalizeLevelThreeStatus(record.status);
-  const isInitialization = displayStatus === '初始化';
-  const canEdit = displayStatus === '待确认';
-  const canSubmit = displayStatus === '待确认';
-  const canReview = displayStatus === '待审核';
   const acceptanceGranularity = getAcceptanceGranularity(record);
   const initializationDescription = getInitializationDescription(record);
 
@@ -1002,9 +1199,14 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           date: id.replace(`${selectedMonthlyRow.id}-`, ''),
           position: selectedMonthlyRow.position,
           member: selectedMonthlyRow.member,
+          operationCenter: selectedMonthlyRow.operationCenter,
+          bankBranch: selectedMonthlyRow.bankBranch,
+          handler: selectedMonthlyRow.handler,
           level1Days: baselineLevel1Days,
           level2Days: baselineLevel2Days,
           level3Days,
+          normalHours: baselineRow?.normalHours || 0,
+          overtimeHours: baselineRow?.overtimeHours || 0,
           sourceGranularity: selectedMonthlyRow.sourceGranularity,
           systemUnitPrice: selectedMonthlyRow.systemUnitPrice,
           recognitionUnitPrice: selectedMonthlyRow.recognitionUnitPrice,
@@ -1372,6 +1574,11 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
             <FileSpreadsheet className="w-3.5 h-3.5" />
             原始文件：{originalAttachment.name}
           </div>
+          {isChinaBank && (
+            <div className="text-xs text-on-surface-variant">
+              数据流程：交付确认数据到总部运营中心审核（中行全量数据已按运营中心/分部拆分）
+            </div>
+          )}
         </div>
       </div>
 
@@ -1418,6 +1625,30 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   <option key={item} value={item}>{item}</option>
                 ))}
               </select>
+              {isChinaBank && (
+                <select
+                  value={operationCenterFilter}
+                  onChange={(event) => setOperationCenterFilter(event.target.value)}
+                  className="admin-input h-9 w-[150px] shrink-0 px-3 text-sm"
+                >
+                  <option value="">全部运营中心</option>
+                  {operationCenterOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              )}
+              {isChinaBank && (
+                <select
+                  value={bankBranchFilter}
+                  onChange={(event) => setBankBranchFilter(event.target.value)}
+                  className="admin-input h-9 w-[140px] shrink-0 px-3 text-sm"
+                >
+                  <option value="">全部项目</option>
+                  {bankBranchOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              )}
               <button
                 type="button"
                 onClick={() => setQuickFilter((prev) => (prev === 'diff' ? 'all' : 'diff'))}
@@ -1442,11 +1673,43 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               </button>
             </div>
           </div>
+          {isChinaBank && (
+            <div className="border-b border-outline-variant bg-surface-container-low px-5 py-2.5 text-xs text-on-surface-variant">
+              {canEdit
+                ? `当前办理人：${currentDeliveryHandler}（待确认阶段仅展示本人负责的项目数据，可调整并确认）`
+                : canReview
+                  ? '当前为总部运营中心审核阶段：仅可查看各中心确认结果，不可调整数据。'
+                  : '中行全量数据已按运营中心与分部分拆归集。'}
+            </div>
+          )}
+          {isChinaBank && canReview && centerConfirmStatus.length > 0 && (
+            <div className="border-b border-outline-variant px-5 py-3">
+              <div className="mb-2 text-xs font-medium text-on-surface">各中心确认状态</div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {centerConfirmStatus.map((item) => (
+                  <div key={item.operationCenter} className="rounded-xl border border-outline-variant bg-white px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-on-surface">{item.operationCenter}</span>
+                      <span className={`inline-flex rounded px-2 py-0.5 ${item.status === '已确认' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {item.status}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-on-surface-variant">确认人：{item.confirmer}</div>
+                    <div className="text-on-surface-variant">确认时间：{item.confirmedAt}</div>
+                    <div className="text-on-surface-variant">产能数：{formatNumber(item.workDays)} 人天</div>
+                    <div className="text-on-surface-variant">金额数：{formatCurrency(item.amount)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-auto custom-scrollbar">
-            <table className="w-full min-w-[1490px] text-left border-collapse">
+            <table className={`w-full text-left border-collapse ${isChinaBank ? 'min-w-[1820px]' : 'min-w-[1490px]'}`}>
               <thead>
                 <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                   <th className="w-[112px] px-4 py-3">人员</th>
+                  {isChinaBank && <th className="w-[120px] px-4 py-3">运营中心</th>}
+                  {isChinaBank && <th className="w-[120px] px-4 py-3">项目</th>}
                   <th className="w-[180px] px-4 py-3">所属项目</th>
                   <th className="w-[120px] px-4 py-3">合同岗位</th>
                   <th className="w-[84px] px-4 py-3">月份</th>
@@ -1457,13 +1720,14 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   <th className="w-[108px] bg-cyan-50 px-4 py-3 text-cyan-700">识别单价</th>
                   <th className="w-[128px] px-3 py-3">计算金额</th>
                   <th className="w-[128px] bg-cyan-50 px-3 py-3 text-cyan-700">识别金额</th>
+                  {isChinaBank && <th className="w-[96px] px-4 py-3">办理人</th>}
                   <th className="sticky right-0 z-10 w-[240px] border-l border-outline-variant bg-surface-container-low px-3 py-3">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
                 {!filteredPersonRows.length && (
                   <tr>
-                    <td colSpan={12} className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                    <td colSpan={isChinaBank ? 15 : 12} className="px-4 py-10 text-center text-sm text-on-surface-variant">
                       {isInitialization ? '初始化状态下暂无人员产能明细，请先核对项目履历后再继续处理。' : '当前筛选条件下暂无符合条件的人员产能明细'}
                     </td>
                   </tr>
@@ -1476,6 +1740,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                         <RowTags hasDiff={item.hasDiff} modified={item.modified} />
                       </div>
                     </td>
+                    {isChinaBank && <td className="px-4 py-4 text-on-surface-variant">{item.operationCenter}</td>}
+                    {isChinaBank && <td className="px-4 py-4 text-on-surface-variant">{item.bankBranch}</td>}
                     <td className="px-4 py-4 text-on-surface-variant">{record.project}</td>
                     <td className="px-4 py-4 text-on-surface-variant">{item.position}</td>
                     <td className="px-4 py-4 text-on-surface-variant">{item.month}</td>
@@ -1486,6 +1752,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                     <td className="bg-cyan-50/70 px-4 py-4">{formatCurrency(item.recognitionUnitPrice)}</td>
                     <td className="px-3 py-4 font-medium">{formatCurrency(item.computedAmount)}</td>
                     <td className="bg-cyan-50/70 px-3 py-4">{formatCurrency(item.recognitionAmount)}</td>
+                    {isChinaBank && <td className="px-4 py-4 text-on-surface-variant">{item.handler}</td>}
                     <td className="sticky right-0 border-l border-outline-variant bg-white px-3 py-4 group-hover:bg-surface-container-low">
                       <div className="flex items-center justify-end gap-3 whitespace-nowrap text-xs">
                         <button
@@ -1564,7 +1831,10 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               </button>
             )}
             {canReview && (
-              <button className="flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors">
+              <button
+                disabled={isChinaBank && !allCentersConfirmed}
+                className="flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
                 <Send className="w-3.5 h-3.5" />
                 通过
               </button>
@@ -1580,6 +1850,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 <XCircle className="w-3.5 h-3.5" />
                 撤销批次
               </button>
+            )}
+            {isChinaBank && canReview && !allCentersConfirmed && (
+              <span className="ml-2 text-xs text-amber-700">仍有运营中心未确认，暂不可审核通过。</span>
             )}
           </div>
         </div>
@@ -1602,6 +1875,14 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                     <span>姓名：{selectedMonthlyRow.member}</span>
                     <span>|</span>
                     <span>合同岗位：{selectedMonthlyRow.position}</span>
+                    {isChinaBank && (
+                      <>
+                        <span>|</span>
+                        <span>运营中心：{selectedMonthlyRow.operationCenter}</span>
+                        <span>|</span>
+                        <span>项目：{selectedMonthlyRow.bankBranch}</span>
+                      </>
+                    )}
                     <span>|</span>
                     <span>月份：{selectedMonthlyRow.month}</span>
                     <span>|</span>
@@ -1669,13 +1950,19 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               <table
                 className={`w-full text-left border-collapse ${
                   selectedMonthlyRow.sourceGranularity === 'daily'
-                    ? 'min-w-[860px]'
+                    ? isChinaBank ? 'min-w-[1040px]' : 'min-w-[860px]'
                     : 'min-w-[540px] table-fixed'
                 }`}
               >
                 <thead>
                   <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                     <th className="px-4 py-3 w-[160px]">日期</th>
+                    {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[100px]">正常工时</th>
+                    )}
+                    {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[100px]">加班工时</th>
+                    )}
                     <th className="px-4 py-3 w-[80px]">一级产能</th>
                     <th className="px-4 py-3 w-[80px]">二级产能</th>
                     {selectedMonthlyRow.sourceGranularity === 'daily' && (
@@ -1701,7 +1988,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   {!filteredDailyDetailRows.length && (
                     <tr>
                       <td
-                        colSpan={selectedMonthlyRow.sourceGranularity === 'daily' ? 8 : 5}
+                        colSpan={selectedMonthlyRow.sourceGranularity === 'daily' ? (isChinaBank ? 10 : 8) : 5}
                         className="px-4 py-8 text-center text-sm text-on-surface-variant"
                       >
                         当前筛选条件下暂无日期明细
@@ -1732,6 +2019,12 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                             )}
                           </div>
                         </td>
+                        {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5">{formatNumber(item.normalHours)}</td>
+                        )}
+                        {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5">{formatNumber(item.overtimeHours)}</td>
+                        )}
                         <td className="px-4 py-3.5">{formatNumber(item.level1Days)}</td>
                         <td className="px-4 py-3.5">{formatNumber(item.level2Days)}</td>
                         {selectedMonthlyRow.sourceGranularity === 'daily' && (

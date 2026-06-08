@@ -75,6 +75,7 @@ interface SavedDraftSnapshot {
 }
 
 const CURRENT_SALES_HANDLER = '李晓燕';
+const CHINA_BANK_HQ_GROUP_ID = 'L3-CHINA-HQ-GROUP';
 
 const QUARTER_MONTHS = ['1月', '2月', '3月'];
 
@@ -405,9 +406,95 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
     [customerFilter, salesOwnedLevelThreeRecords],
   );
 
+  const chinaSelectableLevelThreeRecords = useMemo(
+    () => filteredSelectableLevelThreeRecords.filter((item) => item.customer === '中国银行'),
+    [filteredSelectableLevelThreeRecords],
+  );
+
+  const chinaSelectableIds = useMemo(
+    () => chinaSelectableLevelThreeRecords.map((item) => item.id),
+    [chinaSelectableLevelThreeRecords],
+  );
+
+  const chinaHqSelectableRecord = useMemo(() => {
+    if (!chinaSelectableLevelThreeRecords.length) {
+      return null;
+    }
+
+    const first = chinaSelectableLevelThreeRecords[0];
+    return {
+      ...first,
+      id: CHINA_BANK_HQ_GROUP_ID,
+      operationCenter: '总部运营中心',
+      subCenter: '中行总部分部',
+      amount: roundValue(chinaSelectableLevelThreeRecords.reduce((sum, item) => sum + item.amount, 0)),
+      workDays: roundValue(chinaSelectableLevelThreeRecords.reduce((sum, item) => sum + item.workDays, 0)),
+      updatedAt: chinaSelectableLevelThreeRecords[chinaSelectableLevelThreeRecords.length - 1]?.updatedAt || first.updatedAt,
+    };
+  }, [chinaSelectableLevelThreeRecords]);
+
+  const displaySelectableLevelThreeRecords = useMemo(() => {
+    const nonChinaRows = filteredSelectableLevelThreeRecords.filter((item) => item.customer !== '中国银行');
+
+    if (!chinaHqSelectableRecord) {
+      return nonChinaRows;
+    }
+
+    if (customerFilter === '中国银行') {
+      return [chinaHqSelectableRecord];
+    }
+
+    return [...nonChinaRows, chinaHqSelectableRecord];
+  }, [chinaHqSelectableRecord, customerFilter, filteredSelectableLevelThreeRecords]);
+
+  const chinaGroupSelected = useMemo(
+    () => chinaSelectableIds.length > 0 && chinaSelectableIds.every((id) => selectedLevelThreeIds.includes(id)),
+    [chinaSelectableIds, selectedLevelThreeIds],
+  );
+
+  const selectedBatchCount = useMemo(() => {
+    const nonChinaSelectedCount = selectedLevelThreeIds.filter((id) => !chinaSelectableIds.includes(id)).length;
+    return nonChinaSelectedCount + (chinaGroupSelected ? 1 : 0);
+  }, [chinaGroupSelected, chinaSelectableIds, selectedLevelThreeIds]);
+
   const selectedLevelThreeRecords = useMemo(
     () => salesOwnedLevelThreeRecords.filter((item) => selectedLevelThreeIds.includes(item.id)),
     [salesOwnedLevelThreeRecords, selectedLevelThreeIds],
+  );
+
+  const isChinaBankSelection = useMemo(
+    () => selectedLevelThreeRecords.length > 0 && selectedLevelThreeRecords.every((item) => item.customer === '中国银行'),
+    [selectedLevelThreeRecords],
+  );
+
+  const chinaCenterAmountSummary = useMemo(
+    () => {
+      if (!isChinaBankSelection) {
+        return [] as Array<{ operationCenter: string; amount: number; workDays: number; count: number }>;
+      }
+
+      const grouped = new Map<string, { operationCenter: string; amount: number; workDays: number; count: number }>();
+
+      selectedLevelThreeRecords.forEach((item) => {
+        const existing = grouped.get(item.operationCenter);
+        if (existing) {
+          existing.amount = roundValue(existing.amount + item.amount);
+          existing.workDays = roundValue(existing.workDays + item.workDays);
+          existing.count += 1;
+          return;
+        }
+
+        grouped.set(item.operationCenter, {
+          operationCenter: item.operationCenter,
+          amount: item.amount,
+          workDays: item.workDays,
+          count: 1,
+        });
+      });
+
+      return Array.from(grouped.values());
+    },
+    [isChinaBankSelection, selectedLevelThreeRecords],
   );
 
   const draftSummary = useMemo(
@@ -514,6 +601,19 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
   }, [pendingRestoreDraft, selectedLevelThreeRecords]);
 
   const toggleLevelThreeSelect = (id: string) => {
+    if (id === CHINA_BANK_HQ_GROUP_ID) {
+      setSelectedLevelThreeIds((prev) => {
+        const allSelected = chinaSelectableIds.length > 0 && chinaSelectableIds.every((chinaId) => prev.includes(chinaId));
+
+        if (allSelected) {
+          return prev.filter((item) => !chinaSelectableIds.includes(item));
+        }
+
+        return Array.from(new Set([...prev, ...chinaSelectableIds]));
+      });
+      return;
+    }
+
     setSelectedLevelThreeIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
     );
@@ -711,6 +811,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
     }
 
     const sourceRecord = selectedLevelThreeRecords[0];
+    const isChinaBank = sourceRecord.customer === '中国银行';
     const nextRecord: CapacityRecord = {
       id: buildNextLevel4Id(data),
       period: sourceRecord.period,
@@ -721,12 +822,12 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
       project: '批量汇总开票申请',
       operationCenter: sourceRecord.operationCenter,
       subCenter: sourceRecord.subCenter,
-      approverLevel: sourceRecord.approverLevel || '分中心审批',
+      approverLevel: isChinaBank ? '运营中心负责人审批' : sourceRecord.approverLevel || '分中心审批',
       status: '待提交',
       invoiceStatus: '未开票',
       amount: draftSummary.totalAmount,
       workDays: draftSummary.totalLevel4Days,
-      handler: '李晓燕',
+      handler: sourceRecord.handler,
       updatedAt: nowText(),
       relatedLevelThreeIds: selectedLevelThreeRecords.map((item) => item.id),
     };
@@ -794,7 +895,11 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
             <div className="shrink-0 flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
               <div>
                 <div className="text-base font-semibold text-on-surface">申请开票</div>
-                <div className="mt-1 text-xs text-on-surface-variant">按两步完成申请开票：先选择当前销售负责客户的三级批次，再核对汇总结果并按增减量调整。</div>
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  {isChinaBankSelection
+                    ? '中行四级流程：运营中心负责人申请开票 -> 财务开票 -> 运营中心负责人归档。'
+                    : '按两步完成申请开票：先选择当前销售负责客户的三级批次，再核对汇总结果并按增减量调整。'}
+                </div>
               </div>
               <button
                 type="button"
@@ -832,13 +937,13 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                         <option key={item} value={item}>{item}</option>
                       ))}
                     </select>
-                    <div className="text-xs text-on-surface-variant">当前可选批次：{filteredSelectableLevelThreeRecords.length} 个</div>
+                    <div className="text-xs text-on-surface-variant">当前可选批次：{displaySelectableLevelThreeRecords.length} 个</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 border-b border-outline-variant px-5 py-4 sm:grid-cols-3">
                   <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
                     <div className="text-xs text-on-surface-variant">已选批次</div>
-                    <div className="mt-1 text-sm font-semibold text-on-surface">{selectedLevelThreeIds.length} 个</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">{selectedBatchCount} 个</div>
                   </div>
                   <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
                     <div className="text-xs text-on-surface-variant">已选汇总产能</div>
@@ -866,8 +971,10 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant text-sm">
-                      {filteredSelectableLevelThreeRecords.map((item) => {
-                        const selected = selectedLevelThreeIds.includes(item.id);
+                      {displaySelectableLevelThreeRecords.map((item) => {
+                        const selected = item.id === CHINA_BANK_HQ_GROUP_ID
+                          ? chinaGroupSelected
+                          : selectedLevelThreeIds.includes(item.id);
 
                         return (
                           <tr
@@ -896,7 +1003,7 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                           </tr>
                         );
                       })}
-                      {!filteredSelectableLevelThreeRecords.length && (
+                      {!displaySelectableLevelThreeRecords.length && (
                         <tr>
                           <td colSpan={10} className="px-4 py-12 text-center text-on-surface-variant">当前销售负责客户范围内暂无可选三级批次。</td>
                         </tr>
@@ -927,6 +1034,21 @@ export const LevelFourListPage = ({ data, onDetailClick, onCreateRecord }: Level
                     <div className="mt-1 text-sm font-semibold text-on-surface">{formatCurrency(draftSummary.totalAmount)}</div>
                   </div>
                 </div>
+                {isChinaBankSelection && (
+                  <div className="border-b border-outline-variant px-5 py-3">
+                    <div className="mb-2 text-sm font-semibold text-on-surface">各中心金额汇总</div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {chinaCenterAmountSummary.map((item) => (
+                        <div key={item.operationCenter} className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                          <div className="text-xs text-on-surface-variant">{item.operationCenter}</div>
+                          <div className="mt-1 text-sm font-semibold text-on-surface">
+                            产能 {formatNumber(item.workDays)} 人天 · 金额 {formatCurrency(item.amount)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4 flex-wrap">
                   <div>
                     <div className="text-sm font-semibold text-on-surface">汇总人员明细</div>

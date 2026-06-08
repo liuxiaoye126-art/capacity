@@ -14,6 +14,7 @@ interface PositionTemplate {
   position: string;
   members: Array<{
     name: string;
+    project?: string;
     monthlyDays: number[];
   }>;
 }
@@ -23,6 +24,7 @@ interface DailyCapacityRow {
   summaryId: string;
   month: string;
   date: string;
+  project: string;
   position: string;
   member: string;
   unitPrice: number;
@@ -37,6 +39,7 @@ interface DailyCapacityRow {
 interface PersonMonthlyRow {
   id: string;
   month: string;
+  project: string;
   position: string;
   member: string;
   unitPrice: number;
@@ -176,6 +179,36 @@ const getSourceLevelThreeId = (record: CapacityRecord) => {
 };
 
 const getRelatedLevelThreeBatches = (record: CapacityRecord): RelatedLevelThreeBatch[] => {
+  if (record.customer === '中国银行') {
+    const relatedIds = record.relatedLevelThreeIds && record.relatedLevelThreeIds.length
+      ? record.relatedLevelThreeIds
+      : LEVEL3_DATA.filter(
+          (item) =>
+            item.status === '已通过'
+            && item.customer === '中国银行'
+            && item.contract === record.contract,
+        ).map((item) => item.id);
+
+    const matchedRows = relatedIds
+      .map((id) => LEVEL3_DATA.find((item) => item.id === id))
+      .filter((item): item is CapacityRecord => Boolean(item));
+
+    const totalWorkDays = roundValue(matchedRows.reduce((sum, item) => sum + item.workDays, 0));
+    const totalAmount = roundValue(matchedRows.reduce((sum, item) => sum + item.amount, 0));
+
+    return [
+      {
+        id: `${record.id}-L3-TOTAL`,
+        customer: '中国银行',
+        contract: record.contract,
+        operationCenter: '总部运营中心',
+        workDays: totalWorkDays || record.workDays,
+        amount: totalAmount || record.amount,
+        handler: record.handler,
+      },
+    ];
+  }
+
   const sampleIds = sampleRelatedLevelThreeMap[record.id] || [];
   const relatedIds = record.relatedLevelThreeIds && record.relatedLevelThreeIds.length > 1
     ? record.relatedLevelThreeIds
@@ -272,6 +305,34 @@ const matchesQuickFilter = ({ hasDiff, modified }: { hasDiff: boolean; modified:
 };
 
 const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
+  if (record.customer === '中国银行') {
+    return [
+      {
+        position: '高级',
+        members: [
+          { name: '周子航', project: '中行北京', monthlyDays: [20, 21, 20] },
+          { name: '孙雨桐', project: '中行上海', monthlyDays: [19, 20, 21] },
+          { name: '韩一鸣', project: '中行武汉', monthlyDays: [20, 20, 20] },
+        ],
+      },
+      {
+        position: '中级',
+        members: [
+          { name: '徐嘉宁', project: '中行珠海', monthlyDays: [19, 20, 20] },
+          { name: '魏晨曦', project: '中行深圳', monthlyDays: [20, 19, 20] },
+          { name: '许安然', project: '中行成都', monthlyDays: [20, 20, 21] },
+        ],
+      },
+      {
+        position: '初级',
+        members: [
+          { name: '蒋明轩', project: '中行西安', monthlyDays: [20, 19, 19] },
+          { name: '沈若溪', project: '中行合肥', monthlyDays: [19, 19, 20] },
+        ],
+      },
+    ];
+  }
+
   if (record.customer === '上海银行') {
     return [
       {
@@ -372,6 +433,7 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
             summaryId,
             month,
             date,
+            project: member.project || record.project,
             position: item.position,
             member: member.name,
             unitPrice,
@@ -522,6 +584,7 @@ const buildMonthlyRows = (rows: DailyCapacityRow[], amountOverrides: Record<stri
     grouped.set(item.summaryId, {
       id: item.summaryId,
       month: item.month,
+      project: item.project,
       position: item.position,
       member: item.member,
       unitPrice: item.unitPrice,
@@ -631,19 +694,23 @@ const createInitialInvoices = (record: CapacityRecord): UploadedInvoiceItem[] =>
 const createApprovalLogs = (record: CapacityRecord): ApprovalLogItem[] => [
   {
     id: `${record.id}-log-1`,
-    node: '销售发起',
+    node: record.customer === '中国银行' ? '运营中心负责人发起' : '销售发起',
     handler: record.handler,
     time: '2026-04-08 14:20',
-    action: '初始化四级申请',
-    detail: '基于三级确认后的生效数据生成四级开票申请。',
+    action: record.customer === '中国银行' ? '申请开票' : '初始化四级申请',
+    detail: record.customer === '中国银行'
+      ? '运营中心负责人基于三级确认数据发起四级开票申请。'
+      : '基于三级确认后的生效数据生成四级开票申请。',
   },
   {
     id: `${record.id}-log-2`,
-    node: '审批流转',
-    handler: record.approverLevel === '总部审批' ? '总部运营中心' : '分中心负责人',
+    node: record.customer === '中国银行' ? '财务开票' : '审批流转',
+    handler: record.customer === '中国银行' ? '财务' : (record.approverLevel === '总部审批' ? '总部运营中心' : '分中心负责人'),
     time: '2026-04-09 09:30',
-    action: '待审核',
-    detail: '等待审批人核对四级产能与三级确认结果差异。',
+    action: record.customer === '中国银行' ? '开票上传' : '待审核',
+    detail: record.customer === '中国银行'
+      ? '财务完成开票并上传发票附件。'
+      : '等待审批人核对四级产能与三级确认结果差异。',
   },
   {
     id: `${record.id}-log-3`,
@@ -655,11 +722,13 @@ const createApprovalLogs = (record: CapacityRecord): ApprovalLogItem[] => [
   },
   {
     id: `${record.id}-log-4`,
-    node: '销售归档',
+    node: record.customer === '中国银行' ? '运营中心负责人归档' : '销售归档',
     handler: record.handler,
     time: '2026-04-10 16:05',
     action: '确认归档',
-    detail: '销售确认发票已发送客户后执行归档。',
+    detail: record.customer === '中国银行'
+      ? '运营中心负责人确认发票状态后执行归档。'
+      : '销售确认发票已发送客户后执行归档。',
   },
 ];
 
@@ -977,6 +1046,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
           summaryId: selectedMonthlyRow.id,
           month: selectedMonthlyRow.month,
           date: id.replace(`${selectedMonthlyRow.id}-`, ''),
+          project: selectedMonthlyRow.project,
           position: selectedMonthlyRow.position,
           member: selectedMonthlyRow.member,
           unitPrice: selectedMonthlyRow.unitPrice,
@@ -1023,6 +1093,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
           summaryId: selectedMonthlyRow.id,
           month: selectedMonthlyRow.month,
           date: id.replace(`${selectedMonthlyRow.id}-`, ''),
+          project: selectedMonthlyRow.project,
           position: selectedMonthlyRow.position,
           member: selectedMonthlyRow.member,
           unitPrice: selectedMonthlyRow.unitPrice,
@@ -1393,7 +1464,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                 {relatedLevelThreeBatches.map((item) => (
                   <tr key={item.id} className="hover:bg-surface-container-low/60 transition-colors">
                     <td className="px-4 py-3.5 font-medium">
-                      {onOpenLevelThreeSource ? (
+                      {onOpenLevelThreeSource && LEVEL3_DATA.some((sourceItem) => sourceItem.id === item.id) ? (
                         <button
                           type="button"
                           onClick={() => onOpenLevelThreeSource(item.id)}
@@ -1579,7 +1650,7 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
                           <RowTags hasDiff={item.hasDiff} modified={item.modified} />
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-on-surface-variant">{record.project}</td>
+                      <td className="px-4 py-4 text-on-surface-variant">{item.project}</td>
                       <td className="px-4 py-4 text-on-surface-variant">{item.position}</td>
                       <td className="px-4 py-4 text-on-surface-variant">{item.month}</td>
                       <td className="px-4 py-4">{formatNumber(item.level3Days)}</td>
