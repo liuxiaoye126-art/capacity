@@ -18,6 +18,7 @@ const statusColorMap: Record<string, string> = {
   '待调整': 'bg-amber-100 text-amber-700',
   '待审核': 'bg-sky-100 text-sky-700',
   '已通过': 'bg-emerald-100 text-emerald-700',
+  '已作废': 'bg-slate-200 text-slate-700',
   '待提交': 'bg-amber-100 text-amber-700',
   '待上传发票': 'bg-cyan-100 text-cyan-700',
   '待归档': 'bg-violet-100 text-violet-700',
@@ -59,18 +60,58 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
   };
 
-  const handleRevoke = (id: string) => {
+  const handleRevoke = (id: string, nextStatus: string) => {
     setRows((prev) =>
       prev.map((item) =>
         item.id === id
           ? {
               ...item,
-              status: view === 'level4' ? '待提交' : '已撤销',
+              status: nextStatus,
               updatedAt: updateTime(),
             }
           : item,
       ),
     );
+  };
+
+  const getRevokeAction = (item: LocalCapacityRecord): { label: string; nextStatus: string; className: string } | null => {
+    if (view === 'level3') {
+      if (item.status === '待确认') {
+        return {
+          label: '作废',
+          nextStatus: '已作废',
+          className: 'text-rose-600 hover:underline text-sm mr-3 transition-colors',
+        };
+      }
+
+      if (item.status === '待审核') {
+        return {
+          label: '销售撤销',
+          nextStatus: '已撤销',
+          className: 'text-amber-600 hover:underline text-sm mr-3 transition-colors',
+        };
+      }
+
+      if (item.status === '已通过') {
+        return {
+          label: '管理员撤销',
+          nextStatus: '已撤销',
+          className: 'text-amber-600 hover:underline text-sm mr-3 transition-colors',
+        };
+      }
+
+      return null;
+    }
+
+    if (view !== 'level5' && isProcessingStatus(item.status)) {
+      return {
+        label: '撤销',
+        nextStatus: view === 'level4' ? '待提交' : '已撤销',
+        className: 'text-amber-600 hover:underline text-sm mr-3 transition-colors',
+      };
+    }
+
+    return null;
   };
 
   const handleRestart = (id: string) => {
@@ -146,21 +187,26 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                 <td className="px-4 py-4 text-on-surface-variant">{item.handler}</td>
                 <td className="px-4 py-4 text-on-surface-variant text-xs whitespace-nowrap">{item.updatedAt}</td>
                 <td className="px-4 py-4 text-center whitespace-nowrap">
+                  {(() => {
+                    const revokeAction = getRevokeAction(item);
+
+                    return (
+                      <>
                   <button
                     onClick={() => onDetailClick?.(item.id)}
                     className="text-primary hover:underline text-sm mr-3 transition-colors"
                   >
                     详情
                   </button>
-                  {view !== 'level5' && isProcessingStatus(item.status) && (
+                        {revokeAction && (
                     <button
-                      onClick={() => handleRevoke(item.id)}
-                      className="text-amber-600 hover:underline text-sm mr-3 transition-colors"
+                            onClick={() => handleRevoke(item.id, revokeAction.nextStatus)}
+                            className={revokeAction.className}
                     >
-                      撤销
+                            {revokeAction.label}
                     </button>
                   )}
-                  {view !== 'level5' && item.status === '已撤销' && (
+                        {view !== 'level5' && item.status === '已撤销' && (
                     <button
                       onClick={() => handleRestart(item.id)}
                       className="text-primary hover:underline text-sm mr-3 transition-colors"
@@ -169,6 +215,9 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                     </button>
                   )}
                   <button className="text-red-500 hover:underline text-sm transition-colors">导出</button>
+                      </>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}

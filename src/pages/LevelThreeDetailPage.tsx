@@ -167,6 +167,8 @@ const badgeColorMap: Record<string, string> = {
   '待确认': 'bg-amber-100 text-amber-700',
   '待审核': 'bg-sky-100 text-sky-700',
   '已通过': 'bg-emerald-100 text-emerald-700',
+  '已作废': 'bg-slate-200 text-slate-700',
+  '已撤销': 'bg-rose-100 text-rose-700',
 };
 
 const CHINA_BANK_SPLIT_GROUPS = [
@@ -230,12 +232,24 @@ const normalizeLevelThreeStatus = (status: string) => {
     return '初始化';
   }
 
+  if (status === '待确认') {
+    return '待确认';
+  }
+
   if (status === '待审核') {
     return '待审核';
   }
 
   if (status === '已通过') {
     return '已通过';
+  }
+
+  if (status === '已作废') {
+    return '已作废';
+  }
+
+  if (status === '已撤销') {
+    return '已撤销';
   }
 
   return '待确认';
@@ -881,6 +895,9 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const canEdit = displayStatus === '待确认';
   const canSubmit = displayStatus === '待确认';
   const canReview = displayStatus === '待审核';
+  const canVoid = displayStatus === '待确认';
+  const canSalesRevoke = displayStatus === '待审核';
+  const canAdminRevoke = displayStatus === '已通过';
   const currentDeliveryHandler = isChinaBank ? '赵晨' : record.handler;
 
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
@@ -1809,13 +1826,6 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   <Send className="w-3.5 h-3.5" />
                   提交确认
                 </button>
-                <button
-                  disabled
-                  className="flex items-center gap-1.5 rounded border border-outline-variant bg-surface-container-low px-4 py-2 text-sm text-on-surface-variant cursor-not-allowed"
-                >
-                  <XCircle className="w-3.5 h-3.5" />
-                  撤销批次
-                </button>
               </>
             )}
             {canEdit && (
@@ -1845,10 +1855,22 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 驳回
               </button>
             )}
-            {!canReview && !isInitialization && displayStatus !== '已通过' && (
+            {canVoid && (
               <button className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors">
                 <XCircle className="w-3.5 h-3.5" />
-                撤销批次
+                作废
+              </button>
+            )}
+            {canSalesRevoke && (
+              <button className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors">
+                <XCircle className="w-3.5 h-3.5" />
+                销售撤销
+              </button>
+            )}
+            {canAdminRevoke && (
+              <button className="flex items-center gap-1.5 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-700 hover:bg-rose-100 transition-colors">
+                <XCircle className="w-3.5 h-3.5" />
+                管理员撤销
               </button>
             )}
             {isChinaBank && canReview && !allCentersConfirmed && (
