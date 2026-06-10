@@ -105,7 +105,7 @@ export const Layout = ({ children, breadcrumbs, currentView, onChangeView }: Lay
             onClick={() => toggleMenu('产能管理')}
           >
             <SubItem label="一级产能管理" isActive={currentView === 'level1'} onClick={() => onChangeView('level1')} />
-            <SubItem label="二级产能管理" disabled />
+            <SubItem label="二级产能管理" isActive={currentView === 'level2'} onClick={() => onChangeView('level2')} />
             <SubItem label="三级产能管理" isActive={currentView === 'level3'} onClick={() => onChangeView('level3')} />
             <SubItem label="四级产能管理" isActive={currentView === 'level4'} onClick={() => onChangeView('level4')} />
             <SubItem label="五级产能管理" isActive={currentView === 'level5'} onClick={() => onChangeView('level5')} />

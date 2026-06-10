@@ -1,4 +1,4 @@
-export type CapacityView = 'level1' | 'level3' | 'level4' | 'level5';
+export type CapacityView = 'level1' | 'level2' | 'level3' | 'level4' | 'level5';
 
 export interface LevelOneAttendanceDetail {
   id: string;
@@ -97,6 +97,228 @@ export const OPERATION_CENTERS = ['总部运营中心', '上海运营中心', '�
 export const HANDLERS = ['李晓燕', '王静', '张楠', '陈敏', '王双银', '赵晨', '杨琳', '汤大区'];
 
 export const APPROVER_LEVELS = ['分中心审批', '总部审批'];
+
+// ─── Level 2 ────────────────────────────────────────────────────────────────
+
+export interface LevelTwoPersonRow {
+  id: string;
+  member: string;
+  project: string;
+  position: string;
+  month: string;
+  levelOneDays: number;
+  levelTwoDays: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface LevelTwoSubProjectMemberDetail {
+  date: string;
+  hours: number;
+  task: string;
+}
+
+export interface LevelTwoSubProjectMember {
+  id: string;
+  member: string;
+  project: string;
+  month: string;
+  reportHours: number;
+  reportDays: number;
+  dailyDetails: LevelTwoSubProjectMemberDetail[];
+}
+
+export interface LevelTwoSubProject {
+  subProjectId: string;
+  subProjectName: string;
+  subProjectBatch: string;
+  members: LevelTwoSubProjectMember[];
+}
+
+export interface LevelTwoAttachment {
+  id: string;
+  name: string;
+  type: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  size: string;
+}
+
+export interface LevelTwoRecord {
+  id: string;
+  month: string;
+  customer: string;
+  contract: string;
+  project: string;
+  operationCenter: string;
+  workDays: number;
+  personRows: LevelTwoPersonRow[];
+  subProjects: LevelTwoSubProject[];
+  attachments: LevelTwoAttachment[];
+}
+
+const makeDailyDetails = (startDate: string, days: number, tasks: string[]): LevelTwoSubProjectMemberDetail[] =>
+  Array.from({ length: days }, (_, i) => {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { date: dateStr, hours: 8, task: tasks[i % tasks.length] };
+  });
+
+export const LEVEL2_DATA: LevelTwoRecord[] = [
+  {
+    id: 'L2-2026M05-001',
+    month: '2026-05',
+    customer: '上海银行',
+    contract: '上海银行2023-2026年度信贷及信用卡领域战略技术服务合同',
+    project: '专项分期电子签名功能优化',
+    operationCenter: '上海运营中心',
+    workDays: 105,
+    personRows: [
+      { id: 'L2P-001-01', member: '陈志远', project: '专项分期电子签名功能优化', position: '高级', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1440, amount: 31680 },
+      { id: 'L2P-001-02', member: '林梓萱', project: '专项分期电子签名功能优化', position: '中级', month: '2026-05', levelOneDays: 22, levelTwoDays: 21, unitPrice: 1200, amount: 25200 },
+      { id: 'L2P-001-03', member: '黄思远', project: '专项分期电子签名功能优化', position: '资深', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1800, amount: 39600 },
+      { id: 'L2P-001-04', member: '周雅婷', project: '专项分期电子签名功能优化', position: '中级', month: '2026-05', levelOneDays: 21, levelTwoDays: 20, unitPrice: 1200, amount: 24000 },
+      { id: 'L2P-001-05', member: '魏晨曦', project: '专项分期电子签名功能优化', position: '高级', month: '2026-05', levelOneDays: 22, levelTwoDays: 20, unitPrice: 1440, amount: 28800 },
+    ],
+    subProjects: [
+      {
+        subProjectId: 'SP-2026-0501',
+        subProjectName: '电子签名前端改造',
+        subProjectBatch: '2026Q2-批次01',
+        members: [
+          {
+            id: 'L2SM-0501-01', member: '陈志远', project: '专项分期电子签名功能优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['签名组件需求评审', '签名 SDK 集成开发', '前端联调测试', '代码审查与修复', '功能验收自测']),
+          },
+          {
+            id: 'L2SM-0501-02', member: '林梓萱', project: '专项分期电子签名功能优化', month: '2026-05', reportHours: 168, reportDays: 21,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['签名交互原型评审', '前端页面开发', 'UI 还原与走查', '缺陷修复', '交互优化']),
+          },
+          {
+            id: 'L2SM-0501-03', member: '魏晨曦', project: '专项分期电子签名功能优化', month: '2026-05', reportHours: 160, reportDays: 20,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['前端框架升级', '签名回调逻辑开发', '端到端测试', '性能优化', '文档整理']),
+          },
+        ],
+      },
+      {
+        subProjectId: 'SP-2026-0502',
+        subProjectName: '电子签名后端接口适配',
+        subProjectBatch: '2026Q2-批次01',
+        members: [
+          {
+            id: 'L2SM-0502-01', member: '黄思远', project: '专项分期电子签名功能优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['接口方案设计', '签名服务接入开发', '接口联调', '异常处理优化', '压测与调优']),
+          },
+          {
+            id: 'L2SM-0502-02', member: '周雅婷', project: '专项分期电子签名功能优化', month: '2026-05', reportHours: 160, reportDays: 20,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['数据模型设计', '接口开发', '单元测试', '联调问题修复', '代码提交审核']),
+          },
+        ],
+      },
+    ],
+    attachments: [
+      { id: 'L2A-001-01', name: '2026年5月工时报表.xlsx', type: '月度工时报表', uploadedAt: '2026-06-02 10:30', uploadedBy: '李晓燕', size: '128 KB' },
+      { id: 'L2A-001-02', name: '上海银行5月考勤确认函.pdf', type: '考勤确认', uploadedAt: '2026-06-03 09:15', uploadedBy: '李晓燕', size: '256 KB' },
+    ],
+  },
+  {
+    id: 'L2-2026M05-002',
+    month: '2026-05',
+    customer: '上海银行',
+    contract: '上海银行2026年度渠道整合技术服务合同',
+    project: '渠道统一认证优化',
+    operationCenter: '第四运营中心',
+    workDays: 88,
+    personRows: [
+      { id: 'L2P-002-01', member: '苏梦琪', project: '渠道统一认证优化', position: '高级', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1440, amount: 31680 },
+      { id: 'L2P-002-02', member: '赵子涵', project: '渠道统一认证优化', position: '中级', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1200, amount: 26400 },
+      { id: 'L2P-002-03', member: '唐思远', project: '渠道统一认证优化', position: '资深', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1800, amount: 39600 },
+      { id: 'L2P-002-04', member: '顾可欣', project: '渠道统一认证优化', position: '中级', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1200, amount: 26400 },
+    ],
+    subProjects: [
+      {
+        subProjectId: 'SP-2026-0504',
+        subProjectName: '渠道认证前端统一改造',
+        subProjectBatch: '2026H1-批次01',
+        members: [
+          {
+            id: 'L2SM-0504-01', member: '苏梦琪', project: '渠道统一认证优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['认证流程梳理', 'SSO 组件开发', '前端路由改造', '联调测试', '走查修复']),
+          },
+          {
+            id: 'L2SM-0504-02', member: '赵子涵', project: '渠道统一认证优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['UI 组件开发', '认证弹窗改造', '交互走查', '兼容性测试', '文档输出']),
+          },
+        ],
+      },
+      {
+        subProjectId: 'SP-2026-0505',
+        subProjectName: '认证中台接口联调',
+        subProjectBatch: '2026H1-批次01',
+        members: [
+          {
+            id: 'L2SM-0505-01', member: '唐思远', project: '渠道统一认证优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['中台接口设计', 'Token 校验开发', '接口联调', '安全加固', '压测']),
+          },
+          {
+            id: 'L2SM-0505-02', member: '顾可欣', project: '渠道统一认证优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['接口文档整理', '数据验证开发', '异常场景测试', '缺陷修复', '回归测试']),
+          },
+        ],
+      },
+    ],
+    attachments: [
+      { id: 'L2A-002-01', name: '2026年5月渠道项目工时报表.xlsx', type: '月度工时报表', uploadedAt: '2026-06-02 14:20', uploadedBy: '李晓燕', size: '96 KB' },
+    ],
+  },
+  {
+    id: 'L2-2026M05-003',
+    month: '2026-05',
+    customer: '上海银行',
+    contract: '上海银行2026年度客户经营平台技术服务合同',
+    project: '客户经营标签链路优化',
+    operationCenter: '上海运营中心',
+    workDays: 66,
+    personRows: [
+      { id: 'L2P-003-01', member: '梁知夏', project: '客户经营标签链路优化', position: '高级', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1440, amount: 31680 },
+      { id: 'L2P-003-02', member: '邵亦凡', project: '客户经营标签链路优化', position: '中级', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1200, amount: 26400 },
+      { id: 'L2P-003-03', member: '高云帆', project: '客户经营标签链路优化', position: '资深', month: '2026-05', levelOneDays: 22, levelTwoDays: 22, unitPrice: 1800, amount: 39600 },
+    ],
+    subProjects: [
+      {
+        subProjectId: 'SP-2026-0506',
+        subProjectName: '标签数据链路优化',
+        subProjectBatch: '2026H1-批次02',
+        members: [
+          {
+            id: 'L2SM-0506-01', member: '梁知夏', project: '客户经营标签链路优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['标签链路方案评审', '数据管道开发', '链路监控接入', '性能调优', '联调测试']),
+          },
+          {
+            id: 'L2SM-0506-02', member: '邵亦凡', project: '客户经营标签链路优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['数据清洗逻辑开发', '标签规则配置', '数据验证', '报表统计', '缺陷修复']),
+          },
+        ],
+      },
+      {
+        subProjectId: 'SP-2026-0507',
+        subProjectName: '标签服务性能优化',
+        subProjectBatch: '2026H1-批次02',
+        members: [
+          {
+            id: 'L2SM-0507-01', member: '高云帆', project: '客户经营标签链路优化', month: '2026-05', reportHours: 176, reportDays: 22,
+            dailyDetails: makeDailyDetails('2026-05-06', 10, ['性能基线测试', '缓存策略优化', 'DB 查询优化', '并发压测', '优化效果验收']),
+          },
+        ],
+      },
+    ],
+    attachments: [
+      { id: 'L2A-003-01', name: '2026年5月客户标签项目工时报表.xlsx', type: '月度工时报表', uploadedAt: '2026-06-01 16:45', uploadedBy: '李晓燕', size: '112 KB' },
+      { id: 'L2A-003-02', name: '上海银行5月工时确认邮件截图.png', type: '客户确认截图', uploadedAt: '2026-06-02 09:00', uploadedBy: '李晓燕', size: '320 KB' },
+    ],
+  },
+];
 
 export const INVOICE_STATUS_OPTIONS = ['待上传发票', '未开票', '已上传发票'];
 

@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { BreadcrumbItem, Layout } from './components/layout/Shell';
 import { LevelOneListPage } from './pages/LevelOneListPage';
+import { LevelTwoListPage } from './pages/LevelTwoListPage';
+import { LevelTwoDetailPage } from './pages/LevelTwoDetailPage';
 import { LevelFourDetailPage } from './pages/LevelFourDetailPage';
 import { LevelThreeDetailPage } from './pages/LevelThreeDetailPage';
 import { LevelThreeListPage } from './pages/LevelThreeListPage';
 import { LevelFourListPage } from './pages/LevelFourListPage';
 import { LevelFiveDetailPage } from './pages/LevelFiveDetailPage';
 import { LevelFiveListPage } from './pages/LevelFiveListPage';
-import { CapacityView, LEVEL1_DATA, LEVEL3_DATA, LEVEL4_DATA, LEVEL5_DATA } from './types';
+import { CapacityView, LEVEL1_DATA, LEVEL2_DATA, LEVEL3_DATA, LEVEL4_DATA, LEVEL5_DATA } from './types';
 
 export default function App() {
   const [view, setView] = useState<CapacityView>('level3');
+  const [selectedLevelTwoId, setSelectedLevelTwoId] = useState<string | null>(null);
   const [selectedLevelThreeId, setSelectedLevelThreeId] = useState<string | null>(null);
   const [selectedLevelFourId, setSelectedLevelFourId] = useState<string | null>(null);
   const [selectedLevelFiveId, setSelectedLevelFiveId] = useState<string | null>(null);
@@ -18,6 +21,9 @@ export default function App() {
 
   const handleChangeView = (nextView: CapacityView) => {
     setView(nextView);
+    if (nextView !== 'level2') {
+      setSelectedLevelTwoId(null);
+    }
     if (nextView !== 'level3') {
       setSelectedLevelThreeId(null);
     }
@@ -31,6 +37,11 @@ export default function App() {
 
   const goToLevelOneList = () => {
     setView('level1');
+  };
+
+  const goToLevelTwoList = () => {
+    setView('level2');
+    setSelectedLevelTwoId(null);
   };
 
   const goToLevelThreeList = () => {
@@ -60,6 +71,7 @@ export default function App() {
     setSelectedLevelFourId(id);
   };
 
+  const selectedLevelTwoRecord = LEVEL2_DATA.find((item) => item.id === selectedLevelTwoId) || null;
   const selectedLevelThreeRecord = LEVEL3_DATA.find((item) => item.id === selectedLevelThreeId) || null;
   const selectedLevelFourRecord = level4Records.find((item) => item.id === selectedLevelFourId) || null;
   const selectedLevelFiveRecord = LEVEL5_DATA.find((item) => item.id === selectedLevelFiveId) || null;
@@ -75,6 +87,17 @@ export default function App() {
     breadcrumbs.push({
       label: '一级产能管理',
     });
+  }
+
+  if (view === 'level2') {
+    breadcrumbs.push({
+      label: '二级产能管理',
+      onClick: selectedLevelTwoId ? goToLevelTwoList : undefined,
+    });
+
+    if (selectedLevelTwoId) {
+      breadcrumbs.push({ label: '详情' });
+    }
   }
 
   if (view === 'level3') {
@@ -113,6 +136,10 @@ export default function App() {
   return (
     <Layout breadcrumbs={breadcrumbs} currentView={view} onChangeView={handleChangeView}>
       {view === 'level1' && <LevelOneListPage data={LEVEL1_DATA} />}
+      {view === 'level2' && !selectedLevelTwoId && <LevelTwoListPage onDetailClick={setSelectedLevelTwoId} />}
+      {view === 'level2' && selectedLevelTwoRecord && (
+        <LevelTwoDetailPage record={selectedLevelTwoRecord} onBack={() => setSelectedLevelTwoId(null)} />
+      )}
       {view === 'level3' && !selectedLevelThreeId && <LevelThreeListPage onDetailClick={setSelectedLevelThreeId} />}
       {view === 'level3' && selectedLevelThreeRecord && (
         <LevelThreeDetailPage record={selectedLevelThreeRecord} onBack={() => setSelectedLevelThreeId(null)} />
