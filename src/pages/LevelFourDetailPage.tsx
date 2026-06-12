@@ -167,8 +167,12 @@ const nowText = () => {
 const getPeriodYear = (period: string) => Number(period.match(/(\d{4})/)?.[1] || '2026');
 
 const getSourceLevelThreeId = (record: CapacityRecord) => {
-  if (record.customer === '上海银行') {
+  if (record.customer === '上海农商银行') {
     return 'L3-2026Q1-001';
+  }
+
+  if (record.customer === '兴业银行') {
+    return 'L3-2026Q1-004';
   }
 
   if (record.customer === '浦发银行') {
@@ -193,20 +197,29 @@ const getRelatedLevelThreeBatches = (record: CapacityRecord): RelatedLevelThreeB
       .map((id) => LEVEL3_DATA.find((item) => item.id === id))
       .filter((item): item is CapacityRecord => Boolean(item));
 
-    const totalWorkDays = roundValue(matchedRows.reduce((sum, item) => sum + item.workDays, 0));
-    const totalAmount = roundValue(matchedRows.reduce((sum, item) => sum + item.amount, 0));
+    if (!matchedRows.length) {
+      return [
+        {
+          id: `${record.id}-L3-TOTAL`,
+          customer: '中国银行',
+          contract: record.contract,
+          operationCenter: '总部运营中心',
+          workDays: record.workDays,
+          amount: record.amount,
+          handler: record.handler,
+        },
+      ];
+    }
 
-    return [
-      {
-        id: `${record.id}-L3-TOTAL`,
-        customer: '中国银行',
-        contract: record.contract,
-        operationCenter: '总部运营中心',
-        workDays: totalWorkDays || record.workDays,
-        amount: totalAmount || record.amount,
-        handler: record.handler,
-      },
-    ];
+    return matchedRows.map((item) => ({
+      id: item.id,
+      customer: item.customer,
+      contract: item.contract,
+      operationCenter: item.operationCenter,
+      workDays: item.workDays,
+      amount: item.amount,
+      handler: item.handler,
+    }));
   }
 
   const sampleIds = sampleRelatedLevelThreeMap[record.id] || [];
@@ -333,7 +346,7 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
     ];
   }
 
-  if (record.customer === '上海银行') {
+  if (['上海农商银行', '兴业银行'].includes(record.customer)) {
     return [
       {
         position: '高级',
@@ -849,6 +862,26 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
   }, [initialAdjustmentHistoryMap, initialAmountOverrides, initialPersonRows, record]);
 
   const relatedLevelThreeBatches = useMemo(() => getRelatedLevelThreeBatches(record), [record]);
+  const chinaCenterAmountSummary = useMemo(() => {
+    if (record.customer !== '中国银行') {
+      return [];
+    }
+
+    const centerMap = new Map<string, { operationCenter: string; workDays: number; amount: number }>();
+    relatedLevelThreeBatches.forEach((item) => {
+      const current = centerMap.get(item.operationCenter) || {
+        operationCenter: item.operationCenter,
+        workDays: 0,
+        amount: 0,
+      };
+
+      current.workDays = roundValue(current.workDays + item.workDays);
+      current.amount = roundValue(current.amount + item.amount);
+      centerMap.set(item.operationCenter, current);
+    });
+
+    return Array.from(centerMap.values());
+  }, [record.customer, relatedLevelThreeBatches]);
   const canEdit = currentStatus === '待提交';
   const canReview = currentStatus === '待审核';
   const canUploadInvoice = currentStatus === '待上传发票';
@@ -1447,6 +1480,21 @@ export const LevelFourDetailPage = ({ record, onBack, onOpenLevelThreeSource }: 
             </div>
             <div className="text-xs text-on-surface-variant">共 {relatedLevelThreeBatches.length} 条</div>
           </div>
+          {record.customer === '中国银行' && chinaCenterAmountSummary.length > 0 && (
+            <div>
+              <div className="mb-2 text-sm font-semibold text-on-surface">各中心金额汇总</div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {chinaCenterAmountSummary.map((item) => (
+                  <div key={item.operationCenter} className="rounded-xl border border-outline-variant bg-white px-4 py-3">
+                    <div className="text-xs text-on-surface-variant">{item.operationCenter}</div>
+                    <div className="mt-1 text-sm font-semibold text-on-surface">
+                      产能 {formatNumber(item.workDays)} 人天 · 金额 {formatCurrency(item.amount)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto rounded-2xl border border-outline-variant bg-white">
             <table className="w-full min-w-[920px] table-fixed border-collapse text-left">
               <thead>

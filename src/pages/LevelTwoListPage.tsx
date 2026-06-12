@@ -1,3 +1,4 @@
+import { RefreshCw, Search } from 'lucide-react';
 import React, { useState } from 'react';
 import { LEVEL2_DATA } from '../types';
 
@@ -5,60 +6,95 @@ interface LevelTwoListPageProps {
   onDetailClick: (id: string) => void;
 }
 
+const LabelInput = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div className="flex flex-col gap-1.5">
+    <span className="text-sm text-on-surface-variant">{label}</span>
+    {children}
+  </div>
+);
+
 export const LevelTwoListPage = ({ onDetailClick }: LevelTwoListPageProps) => {
   const [monthFilter, setMonthFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
-  const [centerFilter, setCenterFilter] = useState('');
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [contractFilter, setContractFilter] = useState('');
+
+  const [draftMonthFilter, setDraftMonthFilter] = useState('');
+  const [draftCustomerFilter, setDraftCustomerFilter] = useState('');
+  const [draftContractFilter, setDraftContractFilter] = useState('');
 
   const months = [...new Set(LEVEL2_DATA.map((item) => item.month))];
-  const projects = [...new Set(LEVEL2_DATA.map((item) => item.project))];
-  const centers = [...new Set(LEVEL2_DATA.map((item) => item.operationCenter))];
+  const customers = [...new Set(LEVEL2_DATA.map((item) => item.customer))];
+  const contracts = [...new Set(LEVEL2_DATA.map((item) => item.contract))];
 
   const filtered = LEVEL2_DATA.filter(
     (item) =>
       (!monthFilter || item.month === monthFilter) &&
-      (!projectFilter || item.project === projectFilter) &&
-      (!centerFilter || item.operationCenter === centerFilter),
+      (!customerFilter || item.customer === customerFilter) &&
+      (!contractFilter || item.contract === contractFilter),
   );
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="admin-card mb-4 px-5 py-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <select
-            value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
-            className="admin-input"
-          >
-            <option value="">所属月份：全部</option>
-            {months.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <select
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-            className="admin-input"
-          >
-            <option value="">项目：全部</option>
-            {projects.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-          <select
-            value={centerFilter}
-            onChange={(e) => setCenterFilter(e.target.value)}
-            className="admin-input"
-          >
-            <option value="">运营中心：全部</option>
-            {centers.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4 mb-4">
+          <LabelInput label="所属月份">
+            <select
+              value={draftMonthFilter}
+              onChange={(e) => setDraftMonthFilter(e.target.value)}
+              className="admin-input"
+            >
+              <option value="">全部月份</option>
+              {months.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </LabelInput>
+          <LabelInput label="客户">
+            <select
+              value={draftCustomerFilter}
+              onChange={(e) => setDraftCustomerFilter(e.target.value)}
+              className="admin-input"
+            >
+              <option value="">全部客户</option>
+              {customers.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </LabelInput>
+          <LabelInput label="合同">
+            <select value={draftContractFilter} onChange={(e) => setDraftContractFilter(e.target.value)} className="admin-input">
+              <option value="">全部合同</option>
+              {contracts.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </LabelInput>
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
           <button
-            onClick={() => { setMonthFilter(''); setProjectFilter(''); setCenterFilter(''); }}
-            className="rounded border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+            onClick={() => {
+              setMonthFilter(draftMonthFilter);
+              setCustomerFilter(draftCustomerFilter);
+              setContractFilter(draftContractFilter);
+            }}
+            className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
           >
+            <Search className="w-3.5 h-3.5" />
+            查询
+          </button>
+          <button
+            onClick={() => {
+              setDraftMonthFilter('');
+              setDraftCustomerFilter('');
+              setDraftContractFilter('');
+              setMonthFilter('');
+              setCustomerFilter('');
+              setContractFilter('');
+            }}
+            className="flex items-center gap-1.5 rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
             重置
           </button>
         </div>
@@ -73,8 +109,6 @@ export const LevelTwoListPage = ({ onDetailClick }: LevelTwoListPageProps) => {
                 <th className="px-4 py-3">所属月份</th>
                 <th className="px-4 py-3">客户</th>
                 <th className="px-4 py-3">合同</th>
-                <th className="px-4 py-3">项目</th>
-                <th className="px-4 py-3">运营中心</th>
                 <th className="px-4 py-3">产能人天</th>
                 <th className="px-4 py-3 text-center">操作</th>
               </tr>
@@ -91,8 +125,6 @@ export const LevelTwoListPage = ({ onDetailClick }: LevelTwoListPageProps) => {
                   >
                     {item.contract}
                   </td>
-                  <td className="px-4 py-4 text-on-surface-variant">{item.project}</td>
-                  <td className="px-4 py-4 text-on-surface-variant">{item.operationCenter}</td>
                   <td className="px-4 py-4 text-on-surface font-medium">{item.workDays}</td>
                   <td className="px-4 py-4 text-center">
                     <button
@@ -106,7 +138,7 @@ export const LevelTwoListPage = ({ onDetailClick }: LevelTwoListPageProps) => {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-on-surface-variant">
+                  <td colSpan={6} className="px-4 py-12 text-center text-on-surface-variant">
                     暂无符合条件的记录
                   </td>
                 </tr>

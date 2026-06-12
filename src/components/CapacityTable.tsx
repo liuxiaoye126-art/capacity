@@ -6,6 +6,7 @@ interface CapacityTableProps {
   view: CapacityView;
   onDetailClick?: (id: string) => void;
   onRelatedLevelFourClick?: (id: string) => void;
+  chinaBankRole?: 'hq' | 'delivery' | 'other';
 }
 
 interface LocalCapacityRecord extends CapacityRecord {
@@ -34,7 +35,7 @@ const isProcessingStatus = (status: string) => {
   return !['已通过', '已归档', '已回清', '已生效', '已撤销'].includes(status);
 };
 
-export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourClick }: CapacityTableProps) => {
+export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourClick, chinaBankRole = 'delivery' }: CapacityTableProps) => {
   const [rows, setRows] = useState<LocalCapacityRecord[]>(() =>
     data.map((item) => ({
       ...item,
@@ -77,6 +78,10 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
   const getRevokeAction = (item: LocalCapacityRecord): { label: string; nextStatus: string; className: string } | null => {
     if (view === 'level3') {
       if (item.status === '待确认') {
+        if (item.customer === '中国银行' && chinaBankRole !== 'hq') {
+          return null;
+        }
+
         return {
           label: '作废',
           nextStatus: '已作废',
@@ -184,7 +189,7 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                     {item.status}
                   </span>
                 </td>
-                <td className="px-4 py-4 text-on-surface-variant">{item.handler}</td>
+                <td className="px-4 py-4 text-on-surface-variant">{view === 'level3' && item.status === '已通过' ? '--' : item.handler}</td>
                 <td className="px-4 py-4 text-on-surface-variant text-xs whitespace-nowrap">{item.updatedAt}</td>
                 <td className="px-4 py-4 text-center whitespace-nowrap">
                   {(() => {

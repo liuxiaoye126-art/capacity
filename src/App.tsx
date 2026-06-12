@@ -13,6 +13,7 @@ import { CapacityView, LEVEL1_DATA, LEVEL2_DATA, LEVEL3_DATA, LEVEL4_DATA, LEVEL
 
 export default function App() {
   const [view, setView] = useState<CapacityView>('level3');
+  const [level3ChinaBankRole, setLevel3ChinaBankRole] = useState<'hq' | 'delivery' | 'other'>('delivery');
   const [selectedLevelTwoId, setSelectedLevelTwoId] = useState<string | null>(null);
   const [selectedLevelThreeId, setSelectedLevelThreeId] = useState<string | null>(null);
   const [selectedLevelFourId, setSelectedLevelFourId] = useState<string | null>(null);
@@ -140,9 +141,20 @@ export default function App() {
       {view === 'level2' && selectedLevelTwoRecord && (
         <LevelTwoDetailPage record={selectedLevelTwoRecord} onBack={() => setSelectedLevelTwoId(null)} />
       )}
-      {view === 'level3' && !selectedLevelThreeId && <LevelThreeListPage onDetailClick={setSelectedLevelThreeId} />}
+      {view === 'level3' && !selectedLevelThreeId && (
+        <LevelThreeListPage
+          onDetailClick={setSelectedLevelThreeId}
+          chinaBankRole={level3ChinaBankRole}
+          onChinaBankRoleChange={setLevel3ChinaBankRole}
+        />
+      )}
       {view === 'level3' && selectedLevelThreeRecord && (
-        <LevelThreeDetailPage record={selectedLevelThreeRecord} onBack={() => setSelectedLevelThreeId(null)} />
+        <LevelThreeDetailPage
+          record={selectedLevelThreeRecord}
+          onBack={() => setSelectedLevelThreeId(null)}
+          chinaBankRole={level3ChinaBankRole}
+          onChinaBankRoleChange={setLevel3ChinaBankRole}
+        />
       )}
       {view === 'level4' && !selectedLevelFourId && (
         <LevelFourListPage

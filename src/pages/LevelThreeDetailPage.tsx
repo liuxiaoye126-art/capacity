@@ -19,6 +19,8 @@ import { CapacityRecord } from '../types';
 interface LevelThreeDetailPageProps {
   record: CapacityRecord;
   onBack: () => void;
+  chinaBankRole: 'hq' | 'delivery' | 'other';
+  onChinaBankRoleChange: (role: 'hq' | 'delivery' | 'other') => void;
 }
 
 interface TagState {
@@ -104,8 +106,9 @@ interface PositionTemplate {
   }>;
 }
 
-interface CenterConfirmStatus {
+interface CenterProjectConfirmStatus {
   operationCenter: string;
+  project: string;
   status: '待确认' | '已确认';
   confirmer: string;
   confirmedAt: string;
@@ -136,6 +139,32 @@ type AcceptanceGranularity = 'monthly' | 'daily';
 type QuickFilter = 'all' | 'diff' | 'modified';
 type DailyDetailFilter = 'all' | 'workday' | 'diff' | 'modified';
 type AdjustmentType = 'capacity' | 'amount';
+type ShanghaiSpecialViewMode = 'subproject' | 'person';
+
+interface ShanghaiAcceptanceLine {
+  id: string;
+  subProjectNo: string;
+  batch: string;
+  position: string;
+  projectName: string;
+  acceptanceLevel3Days: number;
+  unitPrice: number;
+}
+
+interface ShanghaiSplitRow {
+  key: string;
+  lineId: string;
+  summaryId: string;
+  member: string;
+  project: string;
+  position: string;
+  month: string;
+  level1Days: number;
+  level2Days: number;
+  systemLevel3Days: number;
+  systemUnitPrice: number;
+  recognitionUnitPrice: number;
+}
 
 interface AdjustmentRecord {
   id: string;
@@ -199,20 +228,35 @@ const CHINA_BANK_SPLIT_GROUPS = [
   },
 ] as const;
 
-const CHINA_BANK_CENTER_CONFIRM_STATUS: Record<string, CenterConfirmStatus[]> = {
+const CHINA_BANK_CENTER_PROJECT_CONFIRM_STATUS: Record<string, CenterProjectConfirmStatus[]> = {
   'L3-2026Q1-011': [
-    { operationCenter: '上海运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 182, amount: 246800 },
-    { operationCenter: '第三运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
-    { operationCenter: '第四运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
-    { operationCenter: '第五运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
-    { operationCenter: '第六运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 447, amount: 601600 },
+    { operationCenter: '上海运营中心', project: '中行上海', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 182, amount: 246800 },
+    { operationCenter: '第三运营中心', project: '中行珠海', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
+    { operationCenter: '第四运营中心', project: '中行北京', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
+    { operationCenter: '第五运营中心', project: '中行深圳', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 91, amount: 123400 },
+    { operationCenter: '第六运营中心', project: '中行成都', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 447, amount: 601600 },
   ],
   'L3-2026Q1-012': [
-    { operationCenter: '上海运营中心', status: '已确认', confirmer: '赵晨', confirmedAt: '2026-04-12 13:20', workDays: 182, amount: 246800 },
-    { operationCenter: '第三运营中心', status: '已确认', confirmer: '王静', confirmedAt: '2026-04-12 13:28', workDays: 91, amount: 123400 },
-    { operationCenter: '第四运营中心', status: '已确认', confirmer: '李晓燕', confirmedAt: '2026-04-12 13:35', workDays: 91, amount: 123400 },
-    { operationCenter: '第五运营中心', status: '已确认', confirmer: '陈敏', confirmedAt: '2026-04-12 13:42', workDays: 91, amount: 123400 },
-    { operationCenter: '第六运营中心', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 447, amount: 601600 },
+    { operationCenter: '上海运营中心', project: '中行上海', status: '已确认', confirmer: '赵晨', confirmedAt: '2026-04-12 13:20', workDays: 182, amount: 246800 },
+    { operationCenter: '第三运营中心', project: '中行珠海', status: '已确认', confirmer: '王静', confirmedAt: '2026-04-12 13:28', workDays: 91, amount: 123400 },
+    { operationCenter: '第四运营中心', project: '中行北京', status: '已确认', confirmer: '李晓燕', confirmedAt: '2026-04-12 13:35', workDays: 91, amount: 123400 },
+    { operationCenter: '第五运营中心', project: '中行深圳', status: '已确认', confirmer: '陈敏', confirmedAt: '2026-04-12 13:42', workDays: 91, amount: 123400 },
+    { operationCenter: '第六运营中心', project: '中行成都', status: '待确认', confirmer: '--', confirmedAt: '--', workDays: 447, amount: 601600 },
+  ],
+  'L3-2026Q1-013': [
+    { operationCenter: '上海运营中心', project: '中行上海', status: '已确认', confirmer: '赵晨', confirmedAt: '2026-04-14 09:50', workDays: 182, amount: 246800 },
+  ],
+  'L3-2026Q1-014': [
+    { operationCenter: '第三运营中心', project: '中行珠海', status: '已确认', confirmer: '王静', confirmedAt: '2026-04-14 09:52', workDays: 91, amount: 123400 },
+  ],
+  'L3-2026Q1-015': [
+    { operationCenter: '第四运营中心', project: '中行北京', status: '已确认', confirmer: '李晓燕', confirmedAt: '2026-04-14 09:54', workDays: 91, amount: 123400 },
+  ],
+  'L3-2026Q1-016': [
+    { operationCenter: '第五运营中心', project: '中行深圳', status: '已确认', confirmer: '陈敏', confirmedAt: '2026-04-14 09:56', workDays: 91, amount: 123400 },
+  ],
+  'L3-2026Q1-017': [
+    { operationCenter: '第六运营中心', project: '中行成都', status: '已确认', confirmer: '张楠', confirmedAt: '2026-04-14 09:58', workDays: 447, amount: 601600 },
   ],
 };
 
@@ -286,7 +330,7 @@ const nowText = () => {
 };
 
 const getAcceptanceGranularity = (record: CapacityRecord): AcceptanceGranularity =>
-  record.customer === '上海银行' ? 'monthly' : 'daily';
+  ['上海农商银行', '兴业银行'].includes(record.customer) ? 'monthly' : 'daily';
 
 const createRecognitionUnitPrice = (systemUnitPrice: number, member: string, position: string) => {
   const seed = Array.from(`${member}-${position}`).reduce((sum, item) => sum + item.charCodeAt(0), 0);
@@ -548,7 +592,7 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
     );
   }
 
-  if (record.customer === '上海银行') {
+  if (['上海农商银行', '兴业银行'].includes(record.customer)) {
     return [
       {
         position: '高级',
@@ -637,6 +681,56 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
   ];
 };
 
+const createShanghaiAcceptanceLines = (record: CapacityRecord): ShanghaiAcceptanceLine[] => {
+  if (!['上海银行', '上海农商银行', '兴业银行'].includes(record.customer)) {
+    return [];
+  }
+
+  if (record.customer === '上海银行') {
+    return [
+      {
+        id: `${record.id}-accept-001`,
+        subProjectNo: 'X20200603000026',
+        batch: '2026-28号',
+        position: '高级',
+        projectName: '在线保证金业务冻结、解冻功能改造业务需求',
+        acceptanceLevel3Days: 128.5,
+        unitPrice: 1450,
+      },
+      {
+        id: `${record.id}-accept-002`,
+        subProjectNo: 'X20200603000031',
+        batch: '2026-29号',
+        position: '高级',
+        projectName: '供应链授信额度联动及补录流程优化',
+        acceptanceLevel3Days: 124.8,
+        unitPrice: 1450,
+      },
+      {
+        id: `${record.id}-accept-003`,
+        subProjectNo: 'X20200603000036',
+        batch: '2026-30号',
+        position: '初级',
+        projectName: '网银渠道客户信息补录与校验改造',
+        acceptanceLevel3Days: 110.2,
+        unitPrice: 1180,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: `${record.id}-accept-001`,
+      subProjectNo: 'X20200603000026',
+      batch: '2026-28号',
+      position: record.position,
+      projectName: '在线保证金业务冻结、解冻功能改造业务需求',
+      acceptanceLevel3Days: 2.5,
+      unitPrice: 1450,
+    },
+  ];
+};
+
 const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
   const systemUnitPrice = roundValue(record.amount / record.workDays);
   const periodYear = getPeriodYear(record.period);
@@ -665,6 +759,9 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
           const level3Days = isChinaBank
             ? roundValue((hourProfile.normalHours + hourProfile.overtimeHours) / 8)
             : dayCapacity;
+          const level1Days = record.customer === '上海银行'
+            ? roundValue(dayCapacity / 1.2)
+            : level3Days;
           const recognitionLevel3Days = createRecognitionLevel3Value(date, level3Days, member.name);
 
           return {
@@ -678,7 +775,7 @@ const createDailyRows = (record: CapacityRecord): DailyCapacityRow[] => {
             operationCenter,
             bankBranch,
             handler,
-            level1Days: level3Days,
+            level1Days,
             level2Days: level3Days,
             level3Days,
             normalHours: hourProfile.normalHours,
@@ -888,14 +985,18 @@ const SectionTitle = ({ title, extra }: { title: string; extra?: React.ReactNode
   </div>
 );
 
-export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPageProps) => {
+export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBankRoleChange }: LevelThreeDetailPageProps) => {
   const isChinaBank = record.customer === '中国银行';
+  const isShanghaiSpecialCustomer = record.customer === '上海银行';
   const displayStatus = normalizeLevelThreeStatus(record.status);
+  const isChinaBankPendingConfirm = isChinaBank && displayStatus === '待确认';
+  const isChinaBankHQ = isChinaBankPendingConfirm && chinaBankRole === 'hq';
+  const isChinaBankDelivery = isChinaBankPendingConfirm && chinaBankRole === 'delivery';
   const isInitialization = displayStatus === '初始化';
-  const canEdit = displayStatus === '待确认';
-  const canSubmit = displayStatus === '待确认';
+  const canEdit = displayStatus === '待确认' && (!isChinaBank || isChinaBankDelivery);
+  const canSubmit = displayStatus === '待确认' && (!isChinaBank || isChinaBankDelivery);
   const canReview = displayStatus === '待审核';
-  const canVoid = displayStatus === '待确认';
+  const canVoid = displayStatus === '待确认' && (!isChinaBank || isChinaBankHQ);
   const canSalesRevoke = displayStatus === '待审核';
   const canAdminRevoke = displayStatus === '已通过';
   const currentDeliveryHandler = isChinaBank ? '赵晨' : record.handler;
@@ -926,6 +1027,12 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     Record<string, Array<{ id: string; deltaValue: number; beforeValue: number; afterValue: number; reason: string; operator: string; time: string }>>
   >({});
   const [dailyAdjHistoryViewId, setDailyAdjHistoryViewId] = useState<string | null>(null);
+  const [shanghaiViewMode, setShanghaiViewMode] = useState<ShanghaiSpecialViewMode>('subproject');
+  const [shanghaiAdjustedSplitMap, setShanghaiAdjustedSplitMap] = useState<Record<string, number>>({});
+  const [shanghaiSubProjectKeyword, setShanghaiSubProjectKeyword] = useState('');
+  const [shanghaiMemberKeyword, setShanghaiMemberKeyword] = useState('');
+  const [shanghaiPositionFilter, setShanghaiPositionFilter] = useState('');
+  const [shanghaiOnlyModified, setShanghaiOnlyModified] = useState(false);
   const recognitionResults = useMemo(() => createRecognitionResults(record), [record]);
   const initialState = useMemo(() => createInitialLevelThreeState(record), [record]);
   const initialPersonRows = useMemo(() => initialState.personRows, [initialState]);
@@ -965,6 +1072,12 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
     setTotalAmountAdjustmentHistory([]);
     setDailyRowAdjustmentHistory({});
     setDailyAdjHistoryViewId(null);
+    setShanghaiViewMode('subproject');
+    setShanghaiAdjustedSplitMap({});
+    setShanghaiSubProjectKeyword('');
+    setShanghaiMemberKeyword('');
+    setShanghaiPositionFilter('');
+    setShanghaiOnlyModified(false);
   };
 
   useEffect(() => {
@@ -976,9 +1089,171 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
   const selectedRecognitionResult = recognitionResults[0];
 
   const monthlyRows = useMemo(() => buildMonthlyRows(personRows, amountOverrides), [amountOverrides, personRows]);
+  const shanghaiAcceptanceLines = useMemo(() => createShanghaiAcceptanceLines(record), [record]);
 
-  const centerConfirmStatus = useMemo(() => CHINA_BANK_CENTER_CONFIRM_STATUS[record.id] || [], [record.id]);
-  const allCentersConfirmed = centerConfirmStatus.length > 0 && centerConfirmStatus.every((item) => item.status === '已确认');
+  const shanghaiSystemSplitRows = useMemo<ShanghaiSplitRow[]>(() => {
+    if (!isShanghaiSpecialCustomer || !shanghaiAcceptanceLines.length || !monthlyRows.length) {
+      return [];
+    }
+
+    return shanghaiAcceptanceLines.flatMap((line) => {
+      const matchedRows = monthlyRows.filter((row) => row.position === line.position);
+      const targetRows = matchedRows.length ? matchedRows : monthlyRows;
+      const totalLevel2 = roundValue(targetRows.reduce((sum, row) => sum + row.level2Days, 0));
+      const safeTotal = totalLevel2 > 0 ? totalLevel2 : targetRows.length;
+
+      return targetRows.map((row) => {
+        const ratio = totalLevel2 > 0 ? row.level2Days / safeTotal : 1 / safeTotal;
+        const systemLevel3Days = roundValue(line.acceptanceLevel3Days * ratio);
+        return {
+          key: `${line.id}::${row.id}`,
+          lineId: line.id,
+          summaryId: row.id,
+          member: row.member,
+          project: record.project,
+          position: row.position,
+          month: row.month,
+          level1Days: row.level1Days,
+          level2Days: row.level2Days,
+          systemLevel3Days,
+          systemUnitPrice: row.systemUnitPrice || line.unitPrice,
+          recognitionUnitPrice: row.recognitionUnitPrice || line.unitPrice,
+        };
+      });
+    });
+  }, [isShanghaiSpecialCustomer, monthlyRows, record.project, shanghaiAcceptanceLines]);
+
+  useEffect(() => {
+    if (!isShanghaiSpecialCustomer) {
+      return;
+    }
+
+    setShanghaiAdjustedSplitMap((prev) => {
+      const next: Record<string, number> = {};
+      shanghaiSystemSplitRows.forEach((item) => {
+        next[item.key] = Object.prototype.hasOwnProperty.call(prev, item.key)
+          ? prev[item.key]
+          : item.systemLevel3Days;
+      });
+      return next;
+    });
+  }, [isShanghaiSpecialCustomer, shanghaiSystemSplitRows]);
+
+  const shanghaiSubProjectGroups = useMemo(
+    () =>
+      shanghaiAcceptanceLines.map((line) => {
+        const rows = shanghaiSystemSplitRows
+          .filter((item) => item.lineId === line.id)
+          .map((item) => {
+            const adjustedLevel3Days = roundValue(shanghaiAdjustedSplitMap[item.key] ?? item.systemLevel3Days);
+            return {
+              ...item,
+              adjustedLevel3Days,
+              amount: roundValue(adjustedLevel3Days * item.systemUnitPrice),
+            };
+          });
+
+        return {
+          ...line,
+          rows,
+          systemTotalDays: roundValue(rows.reduce((sum, item) => sum + item.systemLevel3Days, 0)),
+          adjustedTotalDays: roundValue(rows.reduce((sum, item) => sum + item.adjustedLevel3Days, 0)),
+          adjustedTotalAmount: roundValue(rows.reduce((sum, item) => sum + item.amount, 0)),
+        };
+      }),
+    [shanghaiAcceptanceLines, shanghaiAdjustedSplitMap, shanghaiSystemSplitRows],
+  );
+
+  const shanghaiModifiedSummarySet = useMemo(() => {
+    return new Set(
+      monthlyRows
+        .filter((item) => item.modified || Object.prototype.hasOwnProperty.call(amountOverrides, item.id) || (adjustmentHistoryMap[item.id]?.length ?? 0) > 0)
+        .map((item) => item.id),
+    );
+  }, [adjustmentHistoryMap, amountOverrides, monthlyRows]);
+
+  const shanghaiPositionOptions = useMemo(
+    () => Array.from(new Set(shanghaiSubProjectGroups.map((group) => group.position))),
+    [shanghaiSubProjectGroups],
+  );
+
+  const filteredShanghaiSubProjectGroups = useMemo(() => {
+    const normalizedSubProjectKeyword = shanghaiSubProjectKeyword.trim();
+    const normalizedMemberKeyword = shanghaiMemberKeyword.trim();
+
+    return shanghaiSubProjectGroups
+      .filter((group) => !normalizedSubProjectKeyword || group.subProjectNo.includes(normalizedSubProjectKeyword))
+      .filter((group) => !shanghaiPositionFilter || group.position === shanghaiPositionFilter)
+      .map((group) => {
+        const rows = group.rows.filter((row) => {
+          const rowModified =
+            Math.abs(row.adjustedLevel3Days - row.systemLevel3Days) > 0.001 ||
+            shanghaiModifiedSummarySet.has(row.summaryId);
+          const matchedMember = !normalizedMemberKeyword || row.member.includes(normalizedMemberKeyword);
+          const matchedModified = !shanghaiOnlyModified || rowModified;
+
+          return matchedMember && matchedModified;
+        });
+
+        return {
+          ...group,
+          rows,
+          systemTotalDays: roundValue(rows.reduce((sum, item) => sum + item.systemLevel3Days, 0)),
+          adjustedTotalDays: roundValue(rows.reduce((sum, item) => sum + item.adjustedLevel3Days, 0)),
+          adjustedTotalAmount: roundValue(rows.reduce((sum, item) => sum + item.amount, 0)),
+        };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [shanghaiMemberKeyword, shanghaiOnlyModified, shanghaiPositionFilter, shanghaiSubProjectGroups, shanghaiSubProjectKeyword, shanghaiModifiedSummarySet]);
+
+  const shanghaiPersonViewRows = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        id: string;
+        member: string;
+        project: string;
+        position: string;
+        month: string;
+        level1Days: number;
+        level2Days: number;
+        systemLevel3Days: number;
+        adjustedLevel3Days: number;
+        amount: number;
+      }
+    >();
+
+    shanghaiSystemSplitRows.forEach((item) => {
+      const adjustedLevel3Days = roundValue(shanghaiAdjustedSplitMap[item.key] ?? item.systemLevel3Days);
+      const existing = grouped.get(item.summaryId);
+
+      if (existing) {
+        existing.systemLevel3Days = roundValue(existing.systemLevel3Days + item.systemLevel3Days);
+        existing.adjustedLevel3Days = roundValue(existing.adjustedLevel3Days + adjustedLevel3Days);
+        existing.amount = roundValue(existing.amount + adjustedLevel3Days * item.systemUnitPrice);
+        return;
+      }
+
+      grouped.set(item.summaryId, {
+        id: item.summaryId,
+        member: item.member,
+        project: item.project,
+        position: item.position,
+        month: item.month,
+        level1Days: item.level1Days,
+        level2Days: item.level2Days,
+        systemLevel3Days: item.systemLevel3Days,
+        adjustedLevel3Days,
+        amount: roundValue(adjustedLevel3Days * item.systemUnitPrice),
+      });
+    });
+
+    return Array.from(grouped.values());
+  }, [shanghaiAdjustedSplitMap, shanghaiSystemSplitRows]);
+
+  const centerProjectConfirmStatus = useMemo(() => CHINA_BANK_CENTER_PROJECT_CONFIRM_STATUS[record.id] || [], [record.id]);
+  const allCentersConfirmed =
+    centerProjectConfirmStatus.length > 0 && centerProjectConfirmStatus.every((item) => item.status === '已确认');
 
   const filteredPersonRows = useMemo(
     () =>
@@ -989,7 +1264,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
         const matchedMonth = !monthFilter || item.month === monthFilter;
         const matchedCenter = !operationCenterFilter || item.operationCenter === operationCenterFilter;
         const matchedBranch = !bankBranchFilter || item.bankBranch === bankBranchFilter;
-        const matchedCurrentHandler = !(isChinaBank && canEdit) || item.handler === currentDeliveryHandler;
+        const matchedCurrentHandler = !(isChinaBankPendingConfirm && !isChinaBankHQ) || item.handler === currentDeliveryHandler;
 
         return matchedQuickFilter && matchedMember && matchedPosition && matchedMonth && matchedCenter && matchedBranch && matchedCurrentHandler;
       }),
@@ -997,6 +1272,8 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
       bankBranchFilter,
       canEdit,
       currentDeliveryHandler,
+      isChinaBankHQ,
+      isChinaBankPendingConfirm,
       isChinaBank,
       memberKeyword,
       monthFilter,
@@ -1613,6 +1890,208 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
               </button>
             ) : undefined}
           />
+          {isShanghaiSpecialCustomer && (
+            <>
+              <div className="border-b border-outline-variant px-5 py-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-1">
+                    <button
+                      type="button"
+                      onClick={() => setShanghaiViewMode('subproject')}
+                      className={`rounded px-3 py-1.5 text-xs transition-colors ${
+                        shanghaiViewMode === 'subproject' ? 'bg-white text-primary shadow-sm font-medium' : 'text-on-surface-variant hover:text-on-surface'
+                      }`}
+                    >
+                      按子项目查看
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShanghaiViewMode('person')}
+                      className={`rounded px-3 py-1.5 text-xs transition-colors ${
+                        shanghaiViewMode === 'person' ? 'bg-white text-primary shadow-sm font-medium' : 'text-on-surface-variant hover:text-on-surface'
+                      }`}
+                    >
+                      按人员查看
+                    </button>
+                  </div>
+                  <div className="text-xs text-on-surface-variant">
+                    {shanghaiViewMode === 'subproject'
+                      ? '按验收单行（子项目单-批次-岗位级别）自动拆分三级产能，可在系统拆分基础上调整。'
+                      : '按人员查看仅展示系统拆分与子项目模式调整后的结果，不支持调整。'}
+                  </div>
+                </div>
+                {shanghaiViewMode === 'subproject' && (
+                  <div className="mt-3 flex items-center gap-3 flex-wrap whitespace-nowrap">
+                    <input
+                      type="text"
+                      value={shanghaiSubProjectKeyword}
+                      onChange={(event) => setShanghaiSubProjectKeyword(event.target.value)}
+                      placeholder="按子项目编号筛选"
+                      className="admin-input h-9 w-[180px] px-3 text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={shanghaiMemberKeyword}
+                      onChange={(event) => setShanghaiMemberKeyword(event.target.value)}
+                      placeholder="按姓名筛选"
+                      className="admin-input h-9 w-[140px] px-3 text-sm"
+                    />
+                    <select
+                      value={shanghaiPositionFilter}
+                      onChange={(event) => setShanghaiPositionFilter(event.target.value)}
+                      className="admin-input h-9 w-[150px] px-3 text-sm"
+                    >
+                      <option value="">全部合同岗位</option>
+                      {shanghaiPositionOptions.map((item) => (
+                        <option key={item} value={item}>{item}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShanghaiOnlyModified((prev) => !prev)}
+                      className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                        shanghaiOnlyModified
+                          ? 'bg-primary text-white'
+                          : 'border border-outline-variant bg-white text-on-surface-variant hover:bg-surface-container-low'
+                      }`}
+                    >
+                      仅看已修改
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {shanghaiViewMode === 'subproject' && (
+                <div className="flex-1 overflow-auto custom-scrollbar px-5 py-4 space-y-4">
+                  {filteredShanghaiSubProjectGroups.map((group) => (
+                    <div key={group.id} className="rounded-2xl border border-outline-variant overflow-hidden">
+                      <div className="bg-surface-container-low px-4 py-3">
+                        <div className="text-sm font-semibold text-on-surface">{group.projectName}</div>
+                        <div className="mt-1 text-xs text-on-surface-variant">
+                          子项目单：{group.subProjectNo} ｜ 批次：{group.batch} ｜ 岗位级别：{group.position} ｜ 验收三级产能：{formatNumber(group.acceptanceLevel3Days)} 人天
+                        </div>
+                        <div className="mt-1 text-xs text-on-surface-variant">
+                          系统拆分合计：{formatNumber(group.systemTotalDays)} 人天 ｜ 调整后合计：{formatNumber(group.adjustedTotalDays)} 人天 ｜ 调整后金额：{formatCurrency(group.adjustedTotalAmount)}
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full min-w-[1500px] text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-outline-variant bg-white text-xs font-semibold text-on-surface-variant">
+                              <th className="px-4 py-3">人员</th>
+                              <th className="px-4 py-3">所属项目</th>
+                              <th className="px-4 py-3">合同岗位</th>
+                              <th className="px-4 py-3">月份</th>
+                              <th className="px-4 py-3">一级产能</th>
+                              <th className="px-4 py-3">二级产能</th>
+                              <th className="px-4 py-3 bg-cyan-50 text-cyan-700">系统拆分三级产能</th>
+                              <th className="px-4 py-3 bg-amber-50 text-amber-700">调整后三级产能</th>
+                              <th className="px-4 py-3">系统单价</th>
+                              <th className="px-4 py-3 bg-cyan-50 text-cyan-700">识别单价</th>
+                              <th className="px-4 py-3">金额</th>
+                              <th className="px-4 py-3">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
+                            {group.rows.map((item) => (
+                              <tr key={item.key} className="hover:bg-surface-container-low transition-colors">
+                                <td className="px-4 py-3.5 font-medium">{item.member}</td>
+                                <td className="px-4 py-3.5 text-on-surface-variant">{item.project}</td>
+                                <td className="px-4 py-3.5 text-on-surface-variant">{item.position}</td>
+                                <td className="px-4 py-3.5 text-on-surface-variant">{item.month}</td>
+                                <td className="px-4 py-3.5">{formatNumber(item.level1Days)}</td>
+                                <td className="px-4 py-3.5">{formatNumber(item.level2Days)}</td>
+                                <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.systemLevel3Days)}</td>
+                                <td className="px-4 py-3.5 bg-amber-50/70">{formatNumber(item.adjustedLevel3Days)}</td>
+                                <td className="px-4 py-3.5">{formatCurrency(item.systemUnitPrice)}</td>
+                                <td className="px-4 py-3.5 bg-cyan-50/70">{formatCurrency(item.recognitionUnitPrice)}</td>
+                                <td className="px-4 py-3.5 font-medium">{formatCurrency(item.amount)}</td>
+                                <td className="px-4 py-3.5">
+                                  <div className="flex items-center gap-3 whitespace-nowrap text-xs">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedMonthlyDetailId(item.summaryId)}
+                                      className="text-primary hover:text-primary/80 transition-colors"
+                                    >
+                                      详情
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openAdjustmentModal(item.summaryId, 'capacity')}
+                                      disabled={!canEdit}
+                                      className="text-amber-700 hover:text-amber-800 transition-colors disabled:cursor-not-allowed disabled:text-on-surface-variant"
+                                    >
+                                      调整产能
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openAdjustmentModal(item.summaryId, 'amount')}
+                                      disabled={!canEdit}
+                                      className="text-primary hover:text-primary/80 transition-colors disabled:cursor-not-allowed disabled:text-on-surface-variant"
+                                    >
+                                      调整金额
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                  {!filteredShanghaiSubProjectGroups.length && (
+                    <div className="rounded-2xl border border-outline-variant bg-white px-4 py-10 text-center text-sm text-on-surface-variant">
+                      当前筛选条件下无符合条件的子项目拆分数据
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {shanghaiViewMode === 'person' && (
+                <div className="flex-1 overflow-auto custom-scrollbar px-5 py-4">
+                  <table className="w-full min-w-[980px] text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
+                        <th className="px-4 py-3">人员</th>
+                        <th className="px-4 py-3">所属项目</th>
+                        <th className="px-4 py-3">合同岗位</th>
+                        <th className="px-4 py-3">月份</th>
+                        <th className="px-4 py-3">一级产能</th>
+                        <th className="px-4 py-3">二级产能</th>
+                        <th className="px-4 py-3 bg-cyan-50 text-cyan-700">系统拆分三级产能</th>
+                        <th className="px-4 py-3 bg-amber-50 text-amber-700">调整后三级产能</th>
+                        <th className="px-4 py-3">金额</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
+                      {shanghaiPersonViewRows.map((item) => (
+                        <tr key={item.id} className="hover:bg-surface-container-low transition-colors">
+                          <td className="px-4 py-3.5 font-medium">{item.member}</td>
+                          <td className="px-4 py-3.5 text-on-surface-variant">{item.project}</td>
+                          <td className="px-4 py-3.5 text-on-surface-variant">{item.position}</td>
+                          <td className="px-4 py-3.5 text-on-surface-variant">{item.month}</td>
+                          <td className="px-4 py-3.5">{formatNumber(item.level1Days)}</td>
+                          <td className="px-4 py-3.5">{formatNumber(item.level2Days)}</td>
+                          <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.systemLevel3Days)}</td>
+                          <td className="px-4 py-3.5 bg-amber-50/70">{formatNumber(item.adjustedLevel3Days)}</td>
+                          <td className="px-4 py-3.5 font-medium">{formatCurrency(item.amount)}</td>
+                        </tr>
+                      ))}
+                      {!shanghaiPersonViewRows.length && (
+                        <tr>
+                          <td colSpan={9} className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                            当前无可展示的人员拆分数据
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+          <div className={isShanghaiSpecialCustomer ? 'hidden' : 'contents'}>
           <div className="border-b border-outline-variant px-5 py-3">
             <div className="flex items-center justify-start gap-3 whitespace-nowrap">
               <input
@@ -1692,25 +2171,47 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
           </div>
           {isChinaBank && (
             <div className="border-b border-outline-variant bg-surface-container-low px-5 py-2.5 text-xs text-on-surface-variant">
-              {canEdit
-                ? `当前办理人：${currentDeliveryHandler}（待确认阶段仅展示本人负责的项目数据，可调整并确认）`
-                : canReview
-                  ? '当前为总部运营中心审核阶段：仅可查看各中心确认结果，不可调整数据。'
-                  : '中行全量数据已按运营中心与分部分拆归集。'}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <span>
+                  {isChinaBankPendingConfirm
+                    ? isChinaBankHQ
+                      ? '当前视角：总部运营中心（可查看全部人员数据，可作废批次）'
+                      : chinaBankRole === 'delivery'
+                        ? `当前视角：交付（仅展示本人负责人员：${currentDeliveryHandler}，可保存草稿和提交确认）`
+                        : `当前视角：其他人员（仅展示本人负责人员：${currentDeliveryHandler}，无操作按钮）`
+                    : canReview
+                      ? '当前为总部运营中心审核阶段：可查看各中心项目确认结果，不可调整数据。'
+                      : displayStatus === '已通过'
+                        ? '当前为已通过阶段：展示各中心项目确认结果供追溯。'
+                        : '中行全量数据已按运营中心与分部分拆归集。'}
+                </span>
+                {isChinaBankPendingConfirm && (
+                  <select
+                    value={chinaBankRole}
+                    onChange={(event) => onChinaBankRoleChange(event.target.value as 'hq' | 'delivery' | 'other')}
+                    className="admin-input h-8 w-[170px] px-2 text-xs"
+                  >
+                    <option value="hq">总部运营中心</option>
+                    <option value="delivery">交付</option>
+                    <option value="other">其他人员</option>
+                  </select>
+                )}
+              </div>
             </div>
           )}
-          {isChinaBank && canReview && centerConfirmStatus.length > 0 && (
+          {isChinaBank && (canReview || displayStatus === '已通过') && centerProjectConfirmStatus.length > 0 && (
             <div className="border-b border-outline-variant px-5 py-3">
-              <div className="mb-2 text-xs font-medium text-on-surface">各中心确认状态</div>
+              <div className="mb-2 text-xs font-medium text-on-surface">各中心项目确认状态</div>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {centerConfirmStatus.map((item) => (
-                  <div key={item.operationCenter} className="rounded-xl border border-outline-variant bg-white px-3 py-2 text-xs">
+                {centerProjectConfirmStatus.map((item) => (
+                  <div key={`${item.operationCenter}-${item.project}`} className="rounded-xl border border-outline-variant bg-white px-3 py-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-on-surface">{item.operationCenter}</span>
                       <span className={`inline-flex rounded px-2 py-0.5 ${item.status === '已确认' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                         {item.status}
                       </span>
                     </div>
+                    <div className="mt-1 text-on-surface-variant">项目：{item.project}</div>
                     <div className="mt-1 text-on-surface-variant">确认人：{item.confirmer}</div>
                     <div className="text-on-surface-variant">确认时间：{item.confirmedAt}</div>
                     <div className="text-on-surface-variant">产能数：{formatNumber(item.workDays)} 人天</div>
@@ -1803,6 +2304,7 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         </div>
       </div>
@@ -1979,16 +2481,16 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                 <thead>
                   <tr className="border-b border-outline-variant bg-surface-container-low text-xs font-semibold text-on-surface-variant">
                     <th className="px-4 py-3 w-[160px]">日期</th>
-                    {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
-                      <th className="px-4 py-3 w-[100px]">正常工时</th>
-                    )}
-                    {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
-                      <th className="px-4 py-3 w-[100px]">加班工时</th>
-                    )}
                     <th className="px-4 py-3 w-[80px]">一级产能</th>
                     <th className="px-4 py-3 w-[80px]">二级产能</th>
                     {selectedMonthlyRow.sourceGranularity === 'daily' && (
-                      <th className="px-4 py-3 w-[90px]">识别三级产能</th>
+                      <th className="px-4 py-3 w-[100px] bg-cyan-50 text-cyan-700">正常工时</th>
+                    )}
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[100px] bg-cyan-50 text-cyan-700">加班工时</th>
+                    )}
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[110px] bg-cyan-50 text-cyan-700">识别三级产能</th>
                     )}
                     <th
                       className={`px-4 py-3 bg-amber-50 text-amber-700 ${
@@ -2019,6 +2521,12 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                   )}
                   {filteredDailyDetailRows.map((item) => {
                     const initialLevel3Days = initialPersonRowMap.get(item.id)?.level3Days ?? 0;
+                    const displayLevel1Days = isChinaBank ? Math.min(item.level1Days, 1) : item.level1Days;
+                    const displayLevel2Days = isChinaBank ? Math.min(item.level2Days, 1) : item.level2Days;
+                    const displayRecognitionLevel3Days =
+                      isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily'
+                        ? roundValue(item.normalHours / 8)
+                        : item.recognitionLevel3Days;
                     const currentDelta = roundValue(item.level3Days - initialLevel3Days);
                     const deltaDisplayValue =
                       dailyLevel3DraftValues[item.id] !== undefined
@@ -2041,16 +2549,16 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                             )}
                           </div>
                         </td>
-                        {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
-                          <td className="px-4 py-3.5">{formatNumber(item.normalHours)}</td>
-                        )}
-                        {isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily' && (
-                          <td className="px-4 py-3.5">{formatNumber(item.overtimeHours)}</td>
-                        )}
-                        <td className="px-4 py-3.5">{formatNumber(item.level1Days)}</td>
-                        <td className="px-4 py-3.5">{formatNumber(item.level2Days)}</td>
+                        <td className="px-4 py-3.5">{formatNumber(displayLevel1Days)}</td>
+                        <td className="px-4 py-3.5">{formatNumber(displayLevel2Days)}</td>
                         {selectedMonthlyRow.sourceGranularity === 'daily' && (
-                          <td className="px-4 py-3.5">{formatNumber(item.recognitionLevel3Days)}</td>
+                          <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.normalHours)}</td>
+                        )}
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.overtimeHours)}</td>
+                        )}
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(displayRecognitionLevel3Days)}</td>
                         )}
                         <td className="bg-amber-50/80 px-4 py-3.5">
                           {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' ? (
@@ -2098,15 +2606,6 @@ export const LevelThreeDetailPage = ({ record, onBack }: LevelThreeDetailPagePro
                         {selectedMonthlyRow.sourceGranularity === 'daily' && (
                           <td className="px-4 py-3.5">
                             <div className="flex items-center gap-3 whitespace-nowrap">
-                              {canEdit && item.modified && (
-                                <button
-                                  type="button"
-                                  onClick={() => revertPersonRow(item.id)}
-                                  className="text-xs text-primary hover:text-primary/80 transition-colors"
-                                >
-                                  撤销
-                                </button>
-                              )}
                               <button
                                 type="button"
                                 onClick={() => setDailyAdjHistoryViewId(item.id)}

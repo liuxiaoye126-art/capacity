@@ -117,7 +117,7 @@ const nowText = () => {
 };
 
 const getAcceptanceGranularity = (record: CapacityRecord): AcceptanceGranularity =>
-  record.customer === '上海银行' ? 'monthly' : 'daily';
+  ['上海农商银行', '兴业银行'].includes(record.customer) ? 'monthly' : 'daily';
 
 const hasDraftDiff = (row: DraftLevelFourRow) => {
   const expectedAmount = roundValue(row.level3Days * row.unitPrice);
@@ -178,7 +178,7 @@ const createDailyCapacities = (totalDays: number, workdayCount: number) => {
 };
 
 const createTemplates = (record: CapacityRecord): LevelThreeTemplate[] => {
-  if (record.customer === '上海银行') {
+  if (['上海农商银行', '兴业银行'].includes(record.customer)) {
     return [
       {
         position: '高级',
