@@ -156,6 +156,10 @@ const nowText = () => {
 const getPeriodYear = (period: string) => Number(period.match(/(\d{4})/)?.[1] || '2026');
 
 const getSourceLevelFourId = (record: CapacityRecord) => {
+  if (record.customer === '上海银行') {
+    return 'L4-2026Q1-010';
+  }
+
   if (['上海农商银行', '兴业银行'].includes(record.customer)) {
     return 'L4-2026Q1-004';
   }
@@ -235,6 +239,33 @@ const matchesQuickFilter = ({ hasDiff, modified }: { hasDiff: boolean; modified:
 };
 
 const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
+  if (record.customer === '上海银行') {
+    return [
+      {
+        position: '高级',
+        members: [
+          { name: '黄璇', monthlyDays: [22, 21, 21] },
+          { name: '陈卓', monthlyDays: [21, 21, 20] },
+          { name: '徐青', monthlyDays: [20, 22, 21] },
+        ],
+      },
+      {
+        position: '中级',
+        members: [
+          { name: '李端', monthlyDays: [21, 20, 21] },
+          { name: '许铖', monthlyDays: [20, 21, 21] },
+        ],
+      },
+      {
+        position: '初级',
+        members: [
+          { name: '宋倩', monthlyDays: [22, 21, 20] },
+          { name: '杨澄', monthlyDays: [19, 20, 21] },
+        ],
+      },
+    ];
+  }
+
   if (['上海农商银行', '兴业银行'].includes(record.customer)) {
     return [
       {

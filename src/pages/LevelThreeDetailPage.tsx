@@ -1975,14 +1975,12 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                         </div>
                       </div>
                       <div className="overflow-x-auto custom-scrollbar">
-                        <table className="w-full min-w-[1500px] text-left border-collapse">
+                        <table className="w-full min-w-[1400px] text-left border-collapse">
                           <thead>
                             <tr className="border-b border-outline-variant bg-white text-xs font-semibold text-on-surface-variant">
                               <th className="px-4 py-3">人员</th>
                               <th className="px-4 py-3">所属项目</th>
                               <th className="px-4 py-3">合同岗位</th>
-                              <th className="px-4 py-3">月份</th>
-                              <th className="px-4 py-3">一级产能</th>
                               <th className="px-4 py-3">二级产能</th>
                               <th className="px-4 py-3 bg-cyan-50 text-cyan-700">系统拆分三级产能</th>
                               <th className="px-4 py-3 bg-amber-50 text-amber-700">调整后三级产能</th>
@@ -1998,8 +1996,6 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                                 <td className="px-4 py-3.5 font-medium">{item.member}</td>
                                 <td className="px-4 py-3.5 text-on-surface-variant">{item.project}</td>
                                 <td className="px-4 py-3.5 text-on-surface-variant">{item.position}</td>
-                                <td className="px-4 py-3.5 text-on-surface-variant">{item.month}</td>
-                                <td className="px-4 py-3.5">{formatNumber(item.level1Days)}</td>
                                 <td className="px-4 py-3.5">{formatNumber(item.level2Days)}</td>
                                 <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.systemLevel3Days)}</td>
                                 <td className="px-4 py-3.5 bg-amber-50/70">{formatNumber(item.adjustedLevel3Days)}</td>
@@ -2008,13 +2004,6 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                                 <td className="px-4 py-3.5 font-medium">{formatCurrency(item.amount)}</td>
                                 <td className="px-4 py-3.5">
                                   <div className="flex items-center gap-3 whitespace-nowrap text-xs">
-                                    <button
-                                      type="button"
-                                      onClick={() => setSelectedMonthlyDetailId(item.summaryId)}
-                                      className="text-primary hover:text-primary/80 transition-colors"
-                                    >
-                                      详情
-                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => openAdjustmentModal(item.summaryId, 'capacity')}
@@ -2062,6 +2051,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                         <th className="px-4 py-3 bg-cyan-50 text-cyan-700">系统拆分三级产能</th>
                         <th className="px-4 py-3 bg-amber-50 text-amber-700">调整后三级产能</th>
                         <th className="px-4 py-3">金额</th>
+                        <th className="px-4 py-3">操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
@@ -2076,11 +2066,20 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.systemLevel3Days)}</td>
                           <td className="px-4 py-3.5 bg-amber-50/70">{formatNumber(item.adjustedLevel3Days)}</td>
                           <td className="px-4 py-3.5 font-medium">{formatCurrency(item.amount)}</td>
+                          <td className="px-4 py-3.5">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMonthlyDetailId(item.id)}
+                              className="text-xs text-primary hover:text-primary/80 transition-colors"
+                            >
+                              详情
+                            </button>
+                          </td>
                         </tr>
                       ))}
                       {!shanghaiPersonViewRows.length && (
                         <tr>
-                          <td colSpan={9} className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                          <td colSpan={10} className="px-4 py-10 text-center text-sm text-on-surface-variant">
                             当前无可展示的人员拆分数据
                           </td>
                         </tr>
@@ -2419,7 +2418,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                 </div>
                 <div className="flex flex-col items-end gap-3">
                   <div className="flex items-center gap-3">
-                    {canEdit && selectedMonthlyHasModifiedRows && (
+                    {canEdit && selectedMonthlyHasModifiedRows && !isShanghaiSpecialCustomer && (
                       <button
                         type="button"
                         onClick={() => revertMonthlyRow(selectedMonthlyRow.id)}
@@ -2438,7 +2437,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     </button>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {(selectedMonthlyRow.sourceGranularity === 'daily'
+                    {(selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer
                       ? [
                           { key: 'all', label: '全部日期' },
                           { key: 'workday', label: '仅工作日' },
@@ -2474,7 +2473,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
               <table
                 className={`w-full text-left border-collapse ${
                   selectedMonthlyRow.sourceGranularity === 'daily'
-                    ? isChinaBank ? 'min-w-[1040px]' : 'min-w-[860px]'
+                    ? isChinaBank ? 'min-w-[1040px]' : isShanghaiSpecialCustomer ? 'min-w-[640px]' : 'min-w-[860px]'
                     : 'min-w-[540px] table-fixed'
                 }`}
               >
@@ -2483,27 +2482,30 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     <th className="px-4 py-3 w-[160px]">日期</th>
                     <th className="px-4 py-3 w-[80px]">一级产能</th>
                     <th className="px-4 py-3 w-[80px]">二级产能</th>
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                       <th className="px-4 py-3 w-[100px] bg-cyan-50 text-cyan-700">正常工时</th>
                     )}
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                       <th className="px-4 py-3 w-[100px] bg-cyan-50 text-cyan-700">加班工时</th>
                     )}
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                       <th className="px-4 py-3 w-[110px] bg-cyan-50 text-cyan-700">识别三级产能</th>
+                    )}
+                    {isShanghaiSpecialCustomer && selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[130px] bg-cyan-50 text-cyan-700">系统拆分三级产能</th>
                     )}
                     <th
                       className={`px-4 py-3 bg-amber-50 text-amber-700 ${
                         selectedMonthlyRow.sourceGranularity === 'daily' ? 'w-[110px]' : 'w-[140px]'
                       }`}
                     >
-                      {selectedMonthlyRow.sourceGranularity === 'daily' ? '产能调整增减量' : '三级产能（日拆分）'}
+                      {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer ? '产能调整增减量' : '三级产能（日拆分）'}
                     </th>
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                       <th className="px-4 py-3 w-[200px]">调整原因</th>
                     )}
                     <th className="px-4 py-3 w-[100px]">金额</th>
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                       <th className="px-4 py-3 w-[90px]">操作</th>
                     )}
                   </tr>
@@ -2512,7 +2514,11 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                   {!filteredDailyDetailRows.length && (
                     <tr>
                       <td
-                        colSpan={selectedMonthlyRow.sourceGranularity === 'daily' ? (isChinaBank ? 10 : 8) : 5}
+                        colSpan={
+                          selectedMonthlyRow.sourceGranularity === 'daily'
+                            ? isChinaBank ? 10 : isShanghaiSpecialCustomer ? 6 : 8
+                            : 5
+                        }
                         className="px-4 py-8 text-center text-sm text-on-surface-variant"
                       >
                         当前筛选条件下暂无日期明细
@@ -2551,17 +2557,20 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                         </td>
                         <td className="px-4 py-3.5">{formatNumber(displayLevel1Days)}</td>
                         <td className="px-4 py-3.5">{formatNumber(displayLevel2Days)}</td>
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.normalHours)}</td>
                         )}
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.overtimeHours)}</td>
                         )}
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(displayRecognitionLevel3Days)}</td>
                         )}
+                        {isShanghaiSpecialCustomer && selectedMonthlyRow.sourceGranularity === 'daily' && (
+                          <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(initialPersonRowMap.get(item.id)?.level3Days ?? item.level3Days)}</td>
+                        )}
                         <td className="bg-amber-50/80 px-4 py-3.5">
-                          {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' ? (
+                          {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer ? (
                             <input
                               type="number"
                               step="0.5"
@@ -2579,7 +2588,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                             formatNumber(item.level3Days)
                           )}
                         </td>
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5">
                             {canEdit ? (
                               <input
@@ -2603,7 +2612,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                           </td>
                         )}
                         <td className="px-4 py-3.5">{formatCurrency(item.amount)}</td>
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5">
                             <div className="flex items-center gap-3 whitespace-nowrap">
                               <button
@@ -2627,7 +2636,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                 </tbody>
               </table>
             </div>
-            {selectedMonthlyRow.sourceGranularity === 'daily' && canEdit && (
+            {selectedMonthlyRow.sourceGranularity === 'daily' && canEdit && !isShanghaiSpecialCustomer && (
               <div className="flex items-center justify-between border-t border-outline-variant px-5 py-3">
                 <div className="text-xs">
                   {dailyMissingReasonRows.length > 0 ? (

@@ -116,6 +116,8 @@ const sampleRelatedLevelThreeMap: Record<string, string[]> = {
   'L4-2026Q1-004': ['L3-2026Q1-001', 'L3-2026Q1-004'],
   'L4-2026Q1-005': ['L3-2026Q1-002', 'L3-2026Q1-005'],
   'L4-2026Q1-006': ['L3-2026Q1-003', 'L3-2026Q1-006'],
+  'L4-2026Q1-009': ['L3-2026Q1-016'],
+  'L4-2026Q1-010': ['L3-2026Q1-016'],
 };
 
 type QuickFilter = 'all' | 'diff' | 'modified';
@@ -167,6 +169,10 @@ const nowText = () => {
 const getPeriodYear = (period: string) => Number(period.match(/(\d{4})/)?.[1] || '2026');
 
 const getSourceLevelThreeId = (record: CapacityRecord) => {
+  if (record.customer === '上海银行') {
+    return 'L3-2026Q1-016';
+  }
+
   if (record.customer === '上海农商银行') {
     return 'L3-2026Q1-001';
   }
@@ -341,6 +347,33 @@ const createTemplates = (record: CapacityRecord): PositionTemplate[] => {
         members: [
           { name: '蒋明轩', project: '中行西安', monthlyDays: [20, 19, 19] },
           { name: '沈若溪', project: '中行合肥', monthlyDays: [19, 19, 20] },
+        ],
+      },
+    ];
+  }
+
+  if (record.customer === '上海银行') {
+    return [
+      {
+        position: '高级',
+        members: [
+          { name: '黄璐', project: '在线保证金业务冻结、解冻功能改造业务需求', monthlyDays: [22, 21, 21] },
+          { name: '陈卓', project: '供应链授信额度联动及补录流程优化', monthlyDays: [21, 21, 20] },
+          { name: '徐青', project: '在线保证金业务冻结、解冻功能改造业务需求', monthlyDays: [20, 22, 21] },
+        ],
+      },
+      {
+        position: '中级',
+        members: [
+          { name: '李彤', project: '供应链授信额度联动及补录流程优化', monthlyDays: [21, 20, 21] },
+          { name: '许铭', project: '上海银行渠道统一认证优化', monthlyDays: [20, 21, 21] },
+        ],
+      },
+      {
+        position: '初级',
+        members: [
+          { name: '宋倩', project: '网银渠道客户信息补录与校验改造', monthlyDays: [22, 21, 20] },
+          { name: '杨澄', project: '网银渠道客户信息补录与校验改造', monthlyDays: [19, 20, 21] },
         ],
       },
     ];
