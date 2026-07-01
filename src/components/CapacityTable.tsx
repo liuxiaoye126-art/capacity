@@ -166,7 +166,7 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                 <td className="px-4 py-4 text-on-surface-variant">{item.contract}</td>
                 <td className="px-4 py-4 text-on-surface-variant">{item.operationCenter}</td>
                 <td className="px-4 py-4 text-on-surface font-medium">{item.workDays}</td>
-                <td className="px-4 py-4 text-on-surface font-medium">¥{item.amount.toLocaleString()}</td>
+                <td className="px-4 py-4 text-on-surface font-medium">{view === 'level3' && item.customer === '中国银行' ? '--' : `¥${item.amount.toLocaleString()}`}</td>
                 {view === 'level5' && (
                   <td className="px-4 py-4">
                     {item.relatedLevelFourId ? (
