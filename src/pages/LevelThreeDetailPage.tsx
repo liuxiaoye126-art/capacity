@@ -1004,6 +1004,8 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [dailyDetailFilter, setDailyDetailFilter] = useState<DailyDetailFilter>('all');
   const [dailyLevel3DraftValues, setDailyLevel3DraftValues] = useState<Record<string, string>>({});
+  const [normalHourAdjustmentValues, setNormalHourAdjustmentValues] = useState<Record<string, string>>({});
+  const [overtimeHourAdjustmentValues, setOvertimeHourAdjustmentValues] = useState<Record<string, string>>({});
   const [lastDataRefreshTime, setLastDataRefreshTime] = useState(record.updatedAt);
   const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const [memberKeyword, setMemberKeyword] = useState('');
@@ -2198,7 +2200,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
               </div>
             </div>
           )}
-          {isChinaBank && ((isChinaBankPendingConfirm && isChinaBankHQ) || canReview || displayStatus === '已通过') && centerProjectConfirmStatus.length > 0 && (
+          {isChinaBank && ((displayStatus === '待确认' && isChinaBankHQ) || canReview || displayStatus === '已通过') && centerProjectConfirmStatus.length > 0 && (
             <div className="border-b border-outline-variant px-5 py-3">
               <div className="mb-2 text-xs font-medium text-on-surface">各中心项目确认状态</div>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -2229,15 +2231,15 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                   {isChinaBank && <th className="w-[120px] px-4 py-3">项目</th>}
                   <th className="w-[180px] px-4 py-3">所属项目</th>
                   <th className="w-[100px] px-4 py-3">合同岗位</th>
-                  {isChinaBank && <th className="w-[100px] px-4 py-3">识别岗位</th>}
+                  {isChinaBank && <th className="w-[100px] bg-cyan-50 px-4 py-3 text-cyan-700">识别岗位</th>}
                   <th className="w-[84px] px-4 py-3">月份</th>
                   <th className="w-[88px] px-4 py-3">一级产能</th>
                   <th className="w-[88px] px-4 py-3">二级产能</th>
                   <th className="w-[96px] bg-amber-50 px-3 py-3 text-amber-700">三级产能</th>
                   <th className="w-[108px] px-4 py-3">系统单价</th>
-                  <th className="w-[108px] bg-cyan-50 px-4 py-3 text-cyan-700">识别单价</th>
+                  <th className="w-[108px] px-4 py-3">识别单价</th>
                   <th className="w-[128px] px-3 py-3">计算金额</th>
-                  <th className="w-[128px] bg-cyan-50 px-3 py-3 text-cyan-700">识别金额</th>
+                  <th className="w-[128px] px-3 py-3">识别金额</th>
                   {isChinaBank && <th className="w-[96px] px-4 py-3">办理人</th>}
                   <th className="sticky right-0 z-10 w-[240px] border-l border-outline-variant bg-surface-container-low px-3 py-3">操作</th>
                 </tr>
@@ -2269,7 +2271,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     <td className="bg-amber-50/70 px-3 py-4">{formatNumber(item.level3Days)}</td>
                     <td className="px-4 py-4">{formatCurrency(item.systemUnitPrice)}</td>
                     <td className="px-4 py-4">{formatCurrency(item.recognitionUnitPrice)}</td>
-                    <td className="px-3 py-4 font-medium">{isChinaBank ? '--' : formatCurrency(item.computedAmount)}</td>
+                    <td className="px-3 py-4 font-medium">{formatCurrency(item.computedAmount)}</td>
                     <td className="px-3 py-4">{isChinaBank ? '--' : formatCurrency(item.recognitionAmount)}</td>
                     {isChinaBank && <td className="px-4 py-4 text-on-surface-variant">{item.handler}</td>}
                     <td className="sticky right-0 border-l border-outline-variant bg-white px-3 py-4 group-hover:bg-surface-container-low">
@@ -2569,13 +2571,39 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.normalHours)}</td>
                         )}
                         {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
-                          <td className="px-4 py-3.5 bg-cyan-50/70">--</td>
+                          <td className="px-4 py-3.5 bg-cyan-50/70">
+                            {canEdit ? (
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={normalHourAdjustmentValues[item.id] ?? ''}
+                                onChange={(event) => setNormalHourAdjustmentValues((prev) => ({ ...prev, [item.id]: event.target.value }))}
+                                placeholder="输入增减量"
+                                className="admin-input w-full px-2.5 bg-white border-cyan-300 shadow-[0_0_0_2px_rgba(34,211,238,0.08)]"
+                              />
+                            ) : (
+                              normalHourAdjustmentValues[item.id] ?? '--'
+                            )}
+                          </td>
                         )}
                         {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.overtimeHours)}</td>
                         )}
                         {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
-                          <td className="px-4 py-3.5 bg-cyan-50/70">--</td>
+                          <td className="px-4 py-3.5 bg-cyan-50/70">
+                            {canEdit ? (
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={overtimeHourAdjustmentValues[item.id] ?? ''}
+                                onChange={(event) => setOvertimeHourAdjustmentValues((prev) => ({ ...prev, [item.id]: event.target.value }))}
+                                placeholder="输入增减量"
+                                className="admin-input w-full px-2.5 bg-white border-cyan-300 shadow-[0_0_0_2px_rgba(34,211,238,0.08)]"
+                              />
+                            ) : (
+                              overtimeHourAdjustmentValues[item.id] ?? '--'
+                            )}
+                          </td>
                         )}
                         {selectedMonthlyRow.sourceGranularity === 'daily' && !isChinaBank && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(displayRecognitionLevel3Days)}</td>
