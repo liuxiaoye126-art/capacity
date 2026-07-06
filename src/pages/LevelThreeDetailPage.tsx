@@ -944,7 +944,7 @@ const RowTags = ({ hasDiff, modified }: TagState) => {
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       {hasDiff && <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">差异</span>}
-      {modified && <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-cyan-100 text-cyan-700">已修改</span>}
+      {modified && <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-cyan-100 text-cyan-700">已备注</span>}
     </div>
   );
 };
@@ -953,7 +953,7 @@ const QuickFilterTabs = ({ value, onChange }: { value: QuickFilter; onChange: (v
   const options: Array<{ key: QuickFilter; label: string }> = [
     { key: 'all', label: '全部' },
     { key: 'diff', label: '仅看差异' },
-    { key: 'modified', label: '仅看已修改' },
+    { key: 'modified', label: '仅看已备注' },
   ];
 
   return (
@@ -1018,6 +1018,20 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
   const [recognitionLogsOpen, setRecognitionLogsOpen] = useState(false);
   const [amountOverrides, setAmountOverrides] = useState<Record<string, number>>({});
   const [adjustmentModal, setAdjustmentModal] = useState<{ summaryId: string; type: AdjustmentType } | null>(null);
+  const [remarkValues, setRemarkValues] = useState<Record<string, string>>({});
+  const [remarkHistoryRecord, setRemarkHistoryRecord] = useState<Record<string, Array<{ content: string; operator: string; time: string }>>>({});
+  const [remarkModalOpen, setRemarkModalOpen] = useState(false);
+  const [currentRemarkId, setCurrentRemarkId] = useState<string | null>(null);
+  const [draftRemarkValue, setDraftRemarkValue] = useState('');
+  const [batchRemarkValues, setBatchRemarkValues] = useState<Record<string, string>>({});
+  const [batchRemarkHistoryRecord, setBatchRemarkHistoryRecord] = useState<Record<string, Array<{ content: string; operator: string; time: string }>>>({});
+  const [batchRemarkModalOpen, setBatchRemarkModalOpen] = useState(false);
+  const [draftBatchRemarkValue, setDraftBatchRemarkValue] = useState('');
+  const [dailyDetailRemarkValues, setDailyDetailRemarkValues] = useState<Record<string, string>>({});
+  const [dailyDetailRemarkHistoryRecord, setDailyDetailRemarkHistoryRecord] = useState<Record<string, Array<{ content: string; operator: string; time: string }>>>({});
+  const [dailyDetailRemarkModalOpen, setDailyDetailRemarkModalOpen] = useState(false);
+  const [currentDailyDetailRemarkId, setCurrentDailyDetailRemarkId] = useState<string | null>(null);
+  const [draftDailyDetailRemarkValue, setDraftDailyDetailRemarkValue] = useState('');
   const [draftAdjustmentValue, setDraftAdjustmentValue] = useState('');
   const [draftAdjustmentReason, setDraftAdjustmentReason] = useState('');
   const [totalAmountAdjustment, setTotalAmountAdjustment] = useState(0);
@@ -1253,7 +1267,15 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
     return Array.from(grouped.values());
   }, [shanghaiAdjustedSplitMap, shanghaiSystemSplitRows]);
 
-  const centerProjectConfirmStatus = useMemo(() => CHINA_BANK_CENTER_PROJECT_CONFIRM_STATUS[record.id] || [], [record.id]);
+  const allCenterProjectConfirmStatus = useMemo(() => CHINA_BANK_CENTER_PROJECT_CONFIRM_STATUS[record.id] || [], [record.id]);
+  const centerProjectConfirmStatus = useMemo(() => {
+    if (!isChinaBank) return [];
+    if (isChinaBankHQ) return allCenterProjectConfirmStatus;
+    if (isChinaBankDelivery) {
+      return allCenterProjectConfirmStatus.filter((item) => item.operationCenter === '上海运营中心');
+    }
+    return [];
+  }, [allCenterProjectConfirmStatus, isChinaBank, isChinaBankHQ, isChinaBankDelivery]);
   const allCentersConfirmed =
     centerProjectConfirmStatus.length > 0 && centerProjectConfirmStatus.every((item) => item.status === '已确认');
 
@@ -1882,15 +1904,18 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
         <div className="flex min-h-[680px] flex-col overflow-hidden">
           <SectionTitle
             title="人员产能明细"
-            extra={canEdit ? (
+            extra={
               <button
                 type="button"
-                onClick={openTotalAmountAdjustmentModal}
+                onClick={() => {
+                  setDraftBatchRemarkValue(batchRemarkValues[record.id] || '');
+                  setBatchRemarkModalOpen(true);
+                }}
                 className="inline-flex items-center gap-1.5 rounded border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
               >
-                调整金额
+                备注
               </button>
-            ) : undefined}
+            }
           />
           {isShanghaiSpecialCustomer && (
             <>
@@ -1957,7 +1982,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                           : 'border border-outline-variant bg-white text-on-surface-variant hover:bg-surface-container-low'
                       }`}
                     >
-                      仅看已修改
+                      仅看已备注
                     </button>
                   </div>
                 )}
@@ -1989,7 +2014,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                               <th className="px-4 py-3">系统单价</th>
                               <th className="px-4 py-3 bg-cyan-50 text-cyan-700">识别单价</th>
                               <th className="px-4 py-3">金额</th>
-                              <th className="px-4 py-3">操作</th>
+                              <th className="px-4 py-3">{isShanghaiSpecialCustomer ? '备注' : '操作'}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
@@ -2005,24 +2030,19 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                                 <td className="px-4 py-3.5 bg-cyan-50/70">{formatCurrency(item.recognitionUnitPrice)}</td>
                                 <td className="px-4 py-3.5 font-medium">{formatCurrency(item.amount)}</td>
                                 <td className="px-4 py-3.5">
-                                  <div className="flex items-center gap-3 whitespace-nowrap text-xs">
+                                  {isShanghaiSpecialCustomer && (
                                     <button
                                       type="button"
-                                      onClick={() => openAdjustmentModal(item.summaryId, 'capacity')}
-                                      disabled={!canEdit}
-                                      className="text-amber-700 hover:text-amber-800 transition-colors disabled:cursor-not-allowed disabled:text-on-surface-variant"
+                                      onClick={() => {
+                                        setCurrentRemarkId(item.summaryId);
+                                        setDraftRemarkValue(remarkValues[item.summaryId] || '');
+                                        setRemarkModalOpen(true);
+                                      }}
+                                      className="text-xs text-primary hover:text-primary/80 transition-colors"
                                     >
-                                      调整产能
+                                      备注
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => openAdjustmentModal(item.summaryId, 'amount')}
-                                      disabled={!canEdit}
-                                      className="text-primary hover:text-primary/80 transition-colors disabled:cursor-not-allowed disabled:text-on-surface-variant"
-                                    >
-                                      调整金额
-                                    </button>
-                                  </div>
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -2166,7 +2186,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     : 'border border-outline-variant bg-white text-on-surface-variant hover:bg-surface-container-low'
                 }`}
               >
-                仅看已修改
+                仅看已备注
               </button>
             </div>
           </div>
@@ -2200,7 +2220,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
               </div>
             </div>
           )}
-          {isChinaBank && ((displayStatus === '待确认' && isChinaBankHQ) || canReview || displayStatus === '已通过') && centerProjectConfirmStatus.length > 0 && (
+          {isChinaBank && ((displayStatus === '待确认' && (isChinaBankHQ || isChinaBankDelivery)) || canReview || displayStatus === '已通过') && centerProjectConfirmStatus.length > 0 && (
             <div className="border-b border-outline-variant px-5 py-3">
               <div className="mb-2 text-xs font-medium text-on-surface">各中心项目确认状态</div>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -2241,7 +2261,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                   <th className="w-[128px] px-3 py-3">计算金额</th>
                   <th className="w-[128px] px-3 py-3">识别金额</th>
                   {isChinaBank && <th className="w-[96px] px-4 py-3">办理人</th>}
-                  <th className="sticky right-0 z-10 w-[240px] border-l border-outline-variant bg-surface-container-low px-3 py-3">操作</th>
+                  <th className="sticky right-0 z-10 w-[240px] border-l border-outline-variant bg-surface-container-low px-3 py-3">{(isChinaBank || isShanghaiSpecialCustomer) ? '备注' : '操作'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
@@ -2263,7 +2283,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     {isChinaBank && <td className="px-4 py-4 text-on-surface-variant">{item.operationCenter}</td>}
                     {isChinaBank && <td className="px-4 py-4 text-on-surface-variant">{item.bankBranch}</td>}
                     <td className="px-4 py-4 text-on-surface-variant">{record.project}</td>
-                    <td className="px-4 py-4 text-on-surface-variant">{item.position}</td>
+                    <td className="px-4 py-4 text-on-surface-variant">{isChinaBank ? `${['A', 'B'][(Math.random() * 2) | 0]}${(Math.random() * 6 + 1) | 0}` : item.position}</td>
                     {isChinaBank && <td className="px-4 py-4 text-on-surface-variant bg-cyan-50/70 font-medium">{['A', 'B'][(Math.random() * 2) | 0]}{(Math.random() * 6 + 1) | 0}</td>}
                     <td className="px-4 py-4 text-on-surface-variant">{item.month}</td>
                     <td className="px-4 py-4">{formatNumber(item.level1Days)}</td>
@@ -2272,7 +2292,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     <td className="px-4 py-4">{formatCurrency(item.systemUnitPrice)}</td>
                     <td className="px-4 py-4">{formatCurrency(item.recognitionUnitPrice)}</td>
                     <td className="px-3 py-4 font-medium">{formatCurrency(item.computedAmount)}</td>
-                    <td className="px-3 py-4">{isChinaBank ? '--' : formatCurrency(item.recognitionAmount)}</td>
+                    <td className="px-3 py-4">--</td>
                     {isChinaBank && <td className="px-4 py-4 text-on-surface-variant">{item.handler}</td>}
                     <td className="sticky right-0 border-l border-outline-variant bg-white px-3 py-4 group-hover:bg-surface-container-low">
                       <div className="flex items-center justify-end gap-3 whitespace-nowrap text-xs">
@@ -2283,24 +2303,17 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                         >
                           详情
                         </button>
-                        {canEdit && item.sourceGranularity === 'monthly' && (
-                          <button
-                            type="button"
-                            onClick={() => openAdjustmentModal(item.id, 'capacity')}
-                            className="text-amber-700 hover:text-amber-800 transition-colors"
-                          >
-                            调整产能
-                          </button>
-                        )}
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={() => openAdjustmentModal(item.id, 'amount')}
-                            className="text-primary hover:text-primary/80 transition-colors"
-                          >
-                            调整金额
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentRemarkId(item.id);
+                            setDraftRemarkValue(remarkValues[item.id] || '');
+                            setRemarkModalOpen(true);
+                          }}
+                          className="text-primary hover:text-primary/80 transition-colors"
+                        >
+                          备注
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -2446,7 +2459,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                           { key: 'all', label: '全部日期' },
                           { key: 'workday', label: '仅工作日' },
                           { key: 'diff', label: '仅看差异' },
-                          { key: 'modified', label: '仅看已修改' },
+                          { key: 'modified', label: '仅看已备注' },
                         ]
                       : [
                           { key: 'all', label: '全部日期' },
@@ -2477,7 +2490,7 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
               <table
                 className={`w-full text-left border-collapse ${
                   selectedMonthlyRow.sourceGranularity === 'daily'
-                    ? isChinaBank ? 'min-w-[1040px]' : isShanghaiSpecialCustomer ? 'min-w-[640px]' : 'min-w-[860px]'
+                    ? 'min-w-[1100px]'
                     : 'min-w-[540px] table-fixed'
                 }`}
               >
@@ -2486,17 +2499,11 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     <th className="px-4 py-3 w-[160px]">日期</th>
                     <th className="px-4 py-3 w-[80px]">一级产能</th>
                     <th className="px-4 py-3 w-[80px]">二级产能</th>
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
                       <th className="px-4 py-3 w-[100px] bg-cyan-50 text-cyan-700">正常工时</th>
                     )}
                     {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
-                      <th className="px-4 py-3 w-[110px] bg-cyan-50 text-cyan-700">正常工时增减量</th>
-                    )}
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                       <th className="px-4 py-3 w-[100px] bg-cyan-50 text-cyan-700">加班工时</th>
-                    )}
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
-                      <th className="px-4 py-3 w-[110px] bg-cyan-50 text-cyan-700">加班工时增减量</th>
                     )}
                     {selectedMonthlyRow.sourceGranularity === 'daily' && !isChinaBank && !isShanghaiSpecialCustomer && (
                       <th className="px-4 py-3 w-[110px] bg-cyan-50 text-cyan-700">识别三级产能</th>
@@ -2504,37 +2511,14 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                     {isShanghaiSpecialCustomer && selectedMonthlyRow.sourceGranularity === 'daily' && (
                       <th className="px-4 py-3 w-[130px] bg-cyan-50 text-cyan-700">系统拆分三级产能</th>
                     )}
-                    <th
-                      className={`px-4 py-3 bg-amber-50 text-amber-700 ${
-                        selectedMonthlyRow.sourceGranularity === 'daily' ? 'w-[110px]' : 'w-[140px]'
-                      }`}
-                    >
-                      {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && !isChinaBank ? '产能调整增减量' : '三级产能（日拆分）'}
-                    </th>
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && !isChinaBank && (
-                      <th className="px-4 py-3 w-[200px]">调整原因</th>
-                    )}
+                    <th className="px-4 py-3 w-[110px] bg-amber-50 text-amber-700">三级产能（日拆分）</th>
                     <th className="px-4 py-3 w-[100px]">金额</th>
-                    {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
-                      <th className="px-4 py-3 w-[90px]">操作</th>
+                    {selectedMonthlyRow.sourceGranularity === 'daily' && (
+                      <th className="px-4 py-3 w-[100px]">操作</th>
                     )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant text-sm text-on-surface">
-                  {!filteredDailyDetailRows.length && (
-                    <tr>
-                      <td
-                        colSpan={
-                          selectedMonthlyRow.sourceGranularity === 'daily'
-                            ? isChinaBank ? 11 : isShanghaiSpecialCustomer ? 6 : 8
-                            : 5
-                        }
-                        className="px-4 py-8 text-center text-sm text-on-surface-variant"
-                      >
-                        当前筛选条件下暂无日期明细
-                      </td>
-                    </tr>
-                  )}
                   {filteredDailyDetailRows.map((item) => {
                     const initialLevel3Days = initialPersonRowMap.get(item.id)?.level3Days ?? 0;
                     const displayLevel1Days = isChinaBank ? Math.min(item.level1Days, 1) : item.level1Days;
@@ -2543,15 +2527,6 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                       isChinaBank && selectedMonthlyRow.sourceGranularity === 'daily'
                         ? roundValue(item.normalHours / 8)
                         : item.recognitionLevel3Days;
-                    const currentDelta = roundValue(item.level3Days - initialLevel3Days);
-                    const deltaDisplayValue =
-                      dailyLevel3DraftValues[item.id] !== undefined
-                        ? dailyLevel3DraftValues[item.id]
-                        : currentDelta !== 0
-                          ? String(currentDelta)
-                          : '';
-                    const hasDeltaButNoReason =
-                      deltaDisplayValue.trim() !== '' && !dailyAdjustmentReasons[item.id]?.trim();
                     return (
                       <tr key={item.id} className="hover:bg-surface-container-low/60 transition-colors">
                         <td className="px-4 py-3.5 font-medium">
@@ -2567,43 +2542,11 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                         </td>
                         <td className="px-4 py-3.5">{formatNumber(displayLevel1Days)}</td>
                         <td className="px-4 py-3.5">{formatNumber(displayLevel2Days)}</td>
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.normalHours)}</td>
                         )}
                         {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
-                          <td className="px-4 py-3.5 bg-cyan-50/70">
-                            {canEdit ? (
-                              <input
-                                type="number"
-                                step="0.5"
-                                value={normalHourAdjustmentValues[item.id] ?? ''}
-                                onChange={(event) => setNormalHourAdjustmentValues((prev) => ({ ...prev, [item.id]: event.target.value }))}
-                                placeholder="输入增减量"
-                                className="admin-input w-full px-2.5 bg-white border-cyan-300 shadow-[0_0_0_2px_rgba(34,211,238,0.08)]"
-                              />
-                            ) : (
-                              normalHourAdjustmentValues[item.id] ?? '--'
-                            )}
-                          </td>
-                        )}
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(item.overtimeHours)}</td>
-                        )}
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && isChinaBank && (
-                          <td className="px-4 py-3.5 bg-cyan-50/70">
-                            {canEdit ? (
-                              <input
-                                type="number"
-                                step="0.5"
-                                value={overtimeHourAdjustmentValues[item.id] ?? ''}
-                                onChange={(event) => setOvertimeHourAdjustmentValues((prev) => ({ ...prev, [item.id]: event.target.value }))}
-                                placeholder="输入增减量"
-                                className="admin-input w-full px-2.5 bg-white border-cyan-300 shadow-[0_0_0_2px_rgba(34,211,238,0.08)]"
-                              />
-                            ) : (
-                              overtimeHourAdjustmentValues[item.id] ?? '--'
-                            )}
-                          </td>
                         )}
                         {selectedMonthlyRow.sourceGranularity === 'daily' && !isChinaBank && !isShanghaiSpecialCustomer && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(displayRecognitionLevel3Days)}</td>
@@ -2611,63 +2554,21 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                         {isShanghaiSpecialCustomer && selectedMonthlyRow.sourceGranularity === 'daily' && (
                           <td className="px-4 py-3.5 bg-cyan-50/70">{formatNumber(initialPersonRowMap.get(item.id)?.level3Days ?? item.level3Days)}</td>
                         )}
-                        <td className="bg-amber-50/80 px-4 py-3.5">
-                          {canEdit && selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && !isChinaBank ? (
-                            <input
-                              type="number"
-                              step="0.5"
-                              value={deltaDisplayValue}
-                              onChange={(event) => updateDailyLevel3DraftValue(item.id, event.target.value)}
-                              onBlur={() => commitDailyLevel3DraftValue(item.id)}
-                              placeholder="输入增减量"
-                              className={`admin-input w-full px-2.5 bg-white ${
-                                hasDeltaButNoReason
-                                  ? 'border-rose-400 shadow-[0_0_0_2px_rgba(239,68,68,0.12)]'
-                                  : 'border-amber-300 shadow-[0_0_0_2px_rgba(245,158,11,0.08)]'
-                              }`}
-                            />
-                          ) : (
-                            formatNumber(item.level3Days)
-                          )}
-                        </td>
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && (
-                          <td className="px-4 py-3.5">
-                            {canEdit ? (
-                              <input
-                                type="text"
-                                value={dailyAdjustmentReasons[item.id] ?? ''}
-                                onChange={(event) => updateDailyAdjustmentReason(item.id, event.target.value)}
-                                placeholder={hasDeltaButNoReason ? '请填写原因（必填）' : '填写调整原因'}
-                                className={`admin-input h-10 w-full px-2.5 text-xs ${
-                                  hasDeltaButNoReason ? 'border-rose-400' : ''
-                                }`}
-                                onBlur={() => _commitDailyAdjReason(item.id)}
-                              />
-                            ) : (
-                              <div
-                                className="truncate text-xs text-on-surface"
-                                title={dailyAdjustmentReasons[item.id] || '--'}
-                              >
-                                {dailyAdjustmentReasons[item.id] || '--'}
-                              </div>
-                            )}
-                          </td>
-                        )}
+                        <td className="bg-amber-50/80 px-4 py-3.5">{formatNumber(item.level3Days)}</td>
                         <td className="px-4 py-3.5">{isChinaBank ? '--' : formatCurrency(item.amount)}</td>
-                        {selectedMonthlyRow.sourceGranularity === 'daily' && !isShanghaiSpecialCustomer && !isChinaBank && (
+                        {selectedMonthlyRow.sourceGranularity === 'daily' && (
                           <td className="px-4 py-3.5">
                             <div className="flex items-center gap-3 whitespace-nowrap">
                               <button
                                 type="button"
-                                onClick={() => setDailyAdjHistoryViewId(item.id)}
-                                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors whitespace-nowrap"
+                                onClick={() => {
+                                  setCurrentDailyDetailRemarkId(item.id);
+                                  setDraftDailyDetailRemarkValue(dailyDetailRemarkValues[item.id] || '');
+                                  setDailyDetailRemarkModalOpen(true);
+                                }}
+                                className="text-xs text-primary hover:text-primary/80 transition-colors"
                               >
-                                调整记录
-                                {(dailyRowAdjustmentHistory[item.id]?.length ?? 0) > 0 && (
-                                  <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-white">
-                                    {dailyRowAdjustmentHistory[item.id].length}
-                                  </span>
-                                )}
+                                备注
                               </button>
                             </div>
                           </td>
@@ -2675,28 +2576,26 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
                       </tr>
                     );
                   })}
+                  {!filteredDailyDetailRows.length && (
+                    <tr>
+                      <td
+                        colSpan={
+                          selectedMonthlyRow.sourceGranularity === 'daily'
+                            ? isChinaBank ? 8 : isShanghaiSpecialCustomer ? 8 : 7
+                            : 5
+                        }
+                        className="px-4 py-8 text-center text-sm text-on-surface-variant"
+                      >
+                        当前筛选条件下暂无日期明细
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            {selectedMonthlyRow.sourceGranularity === 'daily' && canEdit && !isShanghaiSpecialCustomer && !isChinaBank && (
-              <div className="flex items-center justify-between border-t border-outline-variant px-5 py-3">
-                <div className="text-xs">
-                  {dailyMissingReasonRows.length > 0 ? (
-                    <span className="text-rose-600">{dailyMissingReasonRows.length} 条调整缺少原因，请补充后再确认</span>
-                  ) : selectedDailyRows.some((r) => r.modified) ? (
-                    <span className="text-emerald-700">所有调整已填写原因，可以确认</span>
-                  ) : (
-                    <span className="text-on-surface-variant">暂无调整记录</span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  disabled={dailyMissingReasonRows.length > 0}
-                  onClick={() => setSelectedMonthlyDetailId('')}
-                  className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
-                >
-                  整体确认
-                </button>
+            {selectedMonthlyRow.sourceGranularity === 'daily' && canEdit && (
+              <div className="border-t border-outline-variant px-5 py-3 text-xs text-on-surface-variant">
+                可添加备注记录处理说明或重要信息
               </div>
             )}
           </div>
@@ -3153,6 +3052,267 @@ export const LevelThreeDetailPage = ({ record, onBack, chinaBankRole, onChinaBan
           </div>
         )}
       </div>
+
+      {remarkModalOpen && currentRemarkId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={() => setRemarkModalOpen(false)}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">备注</div>
+                <div className="mt-1 text-xs text-on-surface-variant">填写备注信息，记录重要事项或处理说明</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRemarkModalOpen(false)}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4 flex-1 overflow-auto custom-scrollbar">
+              <div>
+                <div className="mb-2 text-xs text-on-surface-variant">新增备注</div>
+                <textarea
+                  value={draftRemarkValue}
+                  onChange={(e) => setDraftRemarkValue(e.target.value)}
+                  placeholder="输入备注内容..."
+                  disabled={!canEdit}
+                  className="w-full rounded border border-outline-variant px-3 py-2 text-sm text-on-surface placeholder-on-surface-variant disabled:bg-surface-container-low disabled:text-on-surface-variant resize-none"
+                  rows={4}
+                />
+              </div>
+              {(remarkHistoryRecord[currentRemarkId] || []).length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-on-surface-variant">历史备注</div>
+                  <div className="space-y-2 max-h-[200px] overflow-auto">
+                    {(remarkHistoryRecord[currentRemarkId] || []).map((entry, idx) => (
+                      <div key={idx} className="rounded border border-outline-variant bg-surface-container-low px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="text-xs font-medium text-on-surface">{entry.operator}</div>
+                          <div className="text-xs text-on-surface-variant">{entry.time}</div>
+                        </div>
+                        <div className="text-xs text-on-surface">{entry.content}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setRemarkModalOpen(false)}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentRemarkId && draftRemarkValue.trim()) {
+                    const now = new Date().toLocaleString('zh-CN');
+                    setRemarkHistoryRecord((prev) => ({
+                      ...prev,
+                      [currentRemarkId]: [
+                        ...(prev[currentRemarkId] || []),
+                        { content: draftRemarkValue, operator: '当前用户', time: now },
+                      ],
+                    }));
+                    setRemarkValues((prev) => ({ ...prev, [currentRemarkId]: draftRemarkValue }));
+                    setRemarkModalOpen(false);
+                    setDraftRemarkValue('');
+                  }
+                }}
+                disabled={!draftRemarkValue.trim() || !canEdit}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                保存备注
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {batchRemarkModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={() => setBatchRemarkModalOpen(false)}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">批次备注</div>
+                <div className="mt-1 text-xs text-on-surface-variant">针对整个批次进行备注，记录重要信息或处理说明</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBatchRemarkModalOpen(false)}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4 flex-1 overflow-auto custom-scrollbar">
+              <div>
+                <div className="mb-2 text-xs text-on-surface-variant">新增备注</div>
+                <textarea
+                  value={draftBatchRemarkValue}
+                  onChange={(e) => setDraftBatchRemarkValue(e.target.value)}
+                  placeholder="输入备注内容..."
+                  disabled={!canEdit}
+                  className="w-full rounded border border-outline-variant px-3 py-2 text-sm text-on-surface placeholder-on-surface-variant disabled:bg-surface-container-low disabled:text-on-surface-variant resize-none"
+                  rows={4}
+                />
+              </div>
+              {(batchRemarkHistoryRecord[record.id] || []).length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-on-surface-variant">历史备注</div>
+                  <div className="space-y-2 max-h-[200px] overflow-auto">
+                    {(batchRemarkHistoryRecord[record.id] || []).map((entry, idx) => (
+                      <div key={idx} className="rounded border border-outline-variant bg-surface-container-low px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="text-xs font-medium text-on-surface">{entry.operator}</div>
+                          <div className="text-xs text-on-surface-variant">{entry.time}</div>
+                        </div>
+                        <div className="text-xs text-on-surface">{entry.content}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setBatchRemarkModalOpen(false)}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (draftBatchRemarkValue.trim()) {
+                    const now = new Date().toLocaleString('zh-CN');
+                    setBatchRemarkHistoryRecord((prev) => ({
+                      ...prev,
+                      [record.id]: [
+                        ...(prev[record.id] || []),
+                        { content: draftBatchRemarkValue, operator: '当前用户', time: now },
+                      ],
+                    }));
+                    setBatchRemarkValues((prev) => ({ ...prev, [record.id]: draftBatchRemarkValue }));
+                    setBatchRemarkModalOpen(false);
+                    setDraftBatchRemarkValue('');
+                  }
+                }}
+                disabled={!draftBatchRemarkValue.trim() || !canEdit}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                保存备注
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dailyDetailRemarkModalOpen && currentDailyDetailRemarkId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/45 px-4 py-6"
+          onClick={() => setDailyDetailRemarkModalOpen(false)}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-outline-variant bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-outline-variant px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-on-surface">日期备注</div>
+                <div className="mt-1 text-xs text-on-surface-variant">填写该日期的备注信息</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDailyDetailRemarkModalOpen(false)}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                关闭
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4 flex-1 overflow-auto custom-scrollbar">
+              <div>
+                <div className="mb-2 text-xs text-on-surface-variant">新增备注</div>
+                <textarea
+                  value={draftDailyDetailRemarkValue}
+                  onChange={(e) => setDraftDailyDetailRemarkValue(e.target.value)}
+                  placeholder="输入备注内容..."
+                  disabled={!canEdit}
+                  className="w-full rounded border border-outline-variant px-3 py-2 text-sm text-on-surface placeholder-on-surface-variant disabled:bg-surface-container-low disabled:text-on-surface-variant resize-none"
+                  rows={4}
+                />
+              </div>
+              {(dailyDetailRemarkHistoryRecord[currentDailyDetailRemarkId] || []).length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-on-surface-variant">历史备注</div>
+                  <div className="space-y-2 max-h-[200px] overflow-auto">
+                    {(dailyDetailRemarkHistoryRecord[currentDailyDetailRemarkId] || []).map((entry, idx) => (
+                      <div key={idx} className="rounded border border-outline-variant bg-surface-container-low px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="text-xs font-medium text-on-surface">{entry.operator}</div>
+                          <div className="text-xs text-on-surface-variant">{entry.time}</div>
+                        </div>
+                        <div className="text-xs text-on-surface">{entry.content}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setDailyDetailRemarkModalOpen(false)}
+                className="rounded border border-outline-variant bg-white px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentDailyDetailRemarkId && draftDailyDetailRemarkValue.trim()) {
+                    const now = new Date().toLocaleString('zh-CN');
+                    setDailyDetailRemarkHistoryRecord((prev) => ({
+                      ...prev,
+                      [currentDailyDetailRemarkId]: [
+                        ...(prev[currentDailyDetailRemarkId] || []),
+                        { content: draftDailyDetailRemarkValue, operator: '当前用户', time: now },
+                      ],
+                    }));
+                    setDailyDetailRemarkValues((prev) => ({ ...prev, [currentDailyDetailRemarkId]: draftDailyDetailRemarkValue }));
+                    setDailyDetailRemarkModalOpen(false);
+                    setDraftDailyDetailRemarkValue('');
+                  }
+                }}
+                disabled={!draftDailyDetailRemarkValue.trim() || !canEdit}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                保存备注
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

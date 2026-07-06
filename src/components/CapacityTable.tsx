@@ -219,7 +219,7 @@ export const CapacityTable = ({ data, view, onDetailClick, onRelatedLevelFourCli
                       重新发起
                     </button>
                   )}
-                  <button className="text-red-500 hover:underline text-sm transition-colors">导出</button>
+
                       </>
                     );
                   })()}
